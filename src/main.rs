@@ -3,11 +3,33 @@ use std::{net::SocketAddr, time::Duration};
 use api_starter_axum::{app::build_router, config::Config, infra, state::AppState};
 use tokio::{net::TcpListener, signal};
 
+const USAGE: &str = "usage: api-starter-axum [seed]\n\n  (no command)  run the API server\n  seed          load the development seed data (seeds/seed.sql), then exit";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     infra::telemetry::init();
 
+    match std::env::args().nth(1).as_deref() {
+        None => serve().await,
+        Some("seed" | "--seed") => seed().await,
+        Some(other) => anyhow::bail!("unknown command `{other}`\n\n{USAGE}"),
+    }
+}
+
+/// `cargo run -- seed`: runs the migrations, loads the seed data and exits.
+async fn seed() -> anyhow::Result<()> {
+    let config = Config::from_env()?;
+    let pool = infra::database::connect(&config.database_url, 1).await?;
+    let users = infra::seed::run(&pool).await?;
+    println!("Seed data loaded ({users} users in the database).");
+    println!(
+        "Log in as admin@example.com, alice@example.com, bob@example.com ... with password: Password123!"
+    );
+    Ok(())
+}
+
+async fn serve() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     let pool = infra::database::connect(&config.database_url, 5).await?;
     let bind_addr = config.bind_addr;

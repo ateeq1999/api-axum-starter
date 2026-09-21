@@ -30,6 +30,23 @@ With `MAIL_ENABLED=false` (the default) no email is sent; the message is logged 
 
 No admin exists after the first migration. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` and one is created at startup, only if no active admin exists yet.
 
+### Seed data (development)
+
+```bash
+cargo run -- seed
+```
+
+Runs the migrations, executes [seeds/seed.sql](seeds/seed.sql) and exits (it does not start the server). Safe to run repeatedly: rows are only inserted if missing. It creates five accounts, all with the password `Password123!`:
+
+| Email | Role | State |
+|---|---|---|
+| `admin@example.com` | admin | verified |
+| `alice@example.com`, `bob@example.com` | user | verified |
+| `carol@example.com` | user | email not verified |
+| `dave@example.com` | user | deactivated (login is rejected) |
+
+Development only: never run it against a production database. To change the data, edit `seeds/seed.sql` (UUIDs are stored as 16-byte blobs, so ids are `X'...'` literals). The script is compiled into the binary, so re-run `cargo run -- seed` after editing it.
+
 ## Configuration
 
 All configuration is environment variables (a `.env` file is loaded if present; real environment variables win). The app fails fast at startup on missing or invalid values.
@@ -113,7 +130,8 @@ src/
     ├── mail/                           no HTTP; MailService, SMTP transport, messages/, templates/
     ├── users/                          controller, service, policy, repository, entity, dto, error
     └── auth/                           controllers/, services/, repositories/, dto/, helpers/, entity, error
-migrations/                             0001 init, 0002 users management, 0003 auth tokens
+migrations/                             0001 users, 0002 users management, 0003 auth tokens
+seeds/seed.sql                          development seed data (`cargo run -- seed`)
 tests/                                  integration tests (see Testing)
 ```
 
