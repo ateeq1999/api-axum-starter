@@ -14,7 +14,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::health;
+use crate::{error::AppError, health};
 
 static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
