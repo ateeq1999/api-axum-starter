@@ -14,11 +14,13 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{health, state::AppState};
+use crate::{auth, health, state::AppState};
 
 static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
 pub fn build_router(state: AppState) -> Router {
+    let api = Router::new().nest("/auth", auth::handlers::router());
+
     let middleware = ServiceBuilder::new()
         .layer(SetRequestIdLayer::new(X_REQUEST_ID.clone(), MakeRequestUuid))
         .layer(TraceLayer::new_for_http().make_span_with(|req: &axum::http::Request<_>| {
@@ -33,6 +35,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health/live", get(health::liveness))
         .route("/health/ready", get(health::readiness))
+        .nest("/api/v1", api)
         .layer(middleware)
         .with_state(state)
 }

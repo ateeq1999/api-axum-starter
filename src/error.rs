@@ -19,6 +19,8 @@ pub enum AppError {
     Internal(#[from] anyhow::Error),
     #[error("database error")]
     Database(#[from] sqlx::Error),
+    #[error("validation failed")]
+    Validation(#[from] validator::ValidationErrors),
 }
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -46,6 +48,7 @@ impl AppError {
             Self::Database(_) | Self::Internal(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
             }
+            Self::Validation(_) => (StatusCode::UNPROCESSABLE_ENTITY, "validation_failed"),
         }
     }
 }
@@ -59,6 +62,7 @@ impl IntoResponse for AppError {
                 tracing::error!(error = ?self, "request failed");
                 ("Something went wrong".to_string(), None)
             }
+            Self::Validation(errs) => (self.to_string(), serde_json::to_value(errs).ok()),
             other => (other.to_string(), None),
         };
 
