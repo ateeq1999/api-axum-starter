@@ -17,6 +17,8 @@ pub enum AppError {
     Conflict(String),
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
+    #[error("database error")]
+    Database(#[from] sqlx::Error),
 }
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -41,7 +43,9 @@ impl AppError {
             Self::Unauthorized(_) => (StatusCode::UNAUTHORIZED, "unauthorized"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
-            Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
+            Self::Database(_) | Self::Internal(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+            }
         }
     }
 }
@@ -51,7 +55,7 @@ impl IntoResponse for AppError {
         let (status, code) = self.parts();
 
         let (message, details) = match &self {
-            Self::Internal(_) => {
+            Self::Database(_) | Self::Internal(_) => {
                 tracing::error!(error = ?self, "request failed");
                 ("Something went wrong".to_string(), None)
             }
