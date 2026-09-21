@@ -57,3 +57,34 @@ async fn seeded_accounts_work_through_the_api() {
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn fresh_seed_removes_everything_except_the_seed_data() {
+    let app = common::spawn().await;
+    seed::run(&app.state.db).await.unwrap();
+
+    // extra data that a fresh seed must remove: a user and its emailed-link tokens
+    app.register("extra@example.com").await;
+    let tokens: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_tokens")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert!(
+        tokens > 0,
+        "registration should have created a verification token"
+    );
+
+    assert_eq!(seed::fresh(&app.state.db).await.unwrap(), 5);
+
+    let extra = app.login("extra@example.com", common::PASSWORD).await;
+    assert_eq!(extra.0, StatusCode::UNAUTHORIZED);
+    let tokens: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_tokens")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(tokens, 0);
+    assert_eq!(
+        app.login("admin@example.com", SEED_PASSWORD).await.0,
+        StatusCode::OK
+    );
+}

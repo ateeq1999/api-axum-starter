@@ -45,6 +45,15 @@ Runs the migrations, executes [seeds/seed.sql](seeds/seed.sql) and exits (it doe
 | `carol@example.com` | user | email not verified |
 | `dave@example.com` | user | deactivated (login is rejected) |
 
+To start over from a clean slate, wipe everything and re-seed in one step:
+
+```bash
+cargo run -- seed --fresh          # asks you to type `yes`
+cargo run -- seed --fresh --yes    # no prompt (required when there is no terminal, e.g. CI)
+```
+
+This runs [seeds/reset.sql](seeds/reset.sql) (deletes every user and every emailed-link token, keeps the schema) and then `seeds/seed.sql`, so afterwards the database holds exactly the seed accounts. It is destructive and for development only.
+
 Development only: never run it against a production database. To change the data, edit `seeds/seed.sql` (UUIDs are stored as 16-byte blobs, so ids are `X'...'` literals). The script is compiled into the binary, so re-run `cargo run -- seed` after editing it.
 
 ## Configuration
@@ -131,7 +140,7 @@ src/
     ├── users/                          controller, service, policy, repository, entity, dto, error
     └── auth/                           controllers/, services/, repositories/, dto/, helpers/, entity, error
 migrations/                             0001 users, 0002 users management, 0003 auth tokens
-seeds/seed.sql                          development seed data (`cargo run -- seed`)
+seeds/seed.sql, seeds/reset.sql         development seed data / wipe (`cargo run -- seed [--fresh]`)
 tests/                                  integration tests (see Testing)
 ```
 
