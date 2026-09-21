@@ -1,21 +1,23 @@
-use api_starter_axum::{app::build_router, config::Config};
+use api_starter_axum::{app::build_router, config::Config, telemetry};
 use tokio::{net::TcpListener, signal};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+    telemetry::init();
 
     let config = Config::from_env()?;
+    let bind_addr = config.bind_addr;
+
     let app = build_router();
 
-    let listener = TcpListener::bind(config.bind_addr).await?;
-    println!("listening on {}", listener.local_addr()?);
-
+    let listener = TcpListener::bind(bind_addr).await?;
+    tracing::info!(%bind_addr, "listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    println!("shutdown complete");
+    tracing::info!("shutdown complete");
     Ok(())
 }
 
@@ -41,5 +43,5 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
-    println!("shutdown signal received");
+    tracing::info!("shutdown signal received");
 }
