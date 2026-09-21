@@ -1,28 +1,38 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, time::Duration};
 
-use api_starter_axum::{app::build_router, config::Config, db, state::AppState, telemetry};
+use api_starter_axum::{app::build_router, config::Config, infra, state::AppState};
 use tokio::{net::TcpListener, signal};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    telemetry::init();
+    infra::telemetry::init();
 
     let config = Config::from_env()?;
-    let pool = db::connect(&config.database_url, 5).await?;
+    let pool = infra::database::connect(&config.database_url, 5).await?;
     let bind_addr = config.bind_addr;
+    let bootstrap_admin = config.bootstrap_admin.clone();
 
-    let app = build_router(AppState {
-        db: pool.clone(),
-        config: Arc::new(config),
-    });
+    let state = AppState::new(pool, config)?;
+    if let Some(admin) = bootstrap_admin {
+        state
+            .users
+            .ensure_bootstrap_admin(&admin.email, admin.password)
+            .await?;
+    }
+    let mail = state.mail.clone();
+    let app = build_router(state);
 
     let listener = TcpListener::bind(bind_addr).await?;
     tracing::info!(%bind_addr, "listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
+    mail.shutdown(Duration::from_secs(5)).await;
     tracing::info!("shutdown complete");
     Ok(())
 }

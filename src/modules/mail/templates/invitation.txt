@@ -1,0 +1,7 @@
+You have been invited
+
+An account was created for you. Set a password to get started.
+
+{{ link }}
+
+This link expires in {{ expires_in }}. If you did not expect this email you can ignore it.

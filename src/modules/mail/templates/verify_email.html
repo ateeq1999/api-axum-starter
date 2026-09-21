@@ -1,0 +1,8 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Confirm your email address</h2>
+<p>Click the button below to confirm this email address.</p>
+<p><a href="{{ link }}" style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px;">Confirm email</a></p>
+<p>Or paste this link into your browser:<br>{{ link }}</p>
+<p>This link expires in {{ expires_in }}.</p>
+{% endblock %}

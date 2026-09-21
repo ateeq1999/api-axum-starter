@@ -1,14 +1,21 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
 use serde_json::{Value, json};
+use sqlx::SqlitePool;
 
 use crate::state::AppState;
 
-pub async fn liveness() -> Json<Value> {
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/health/live", get(liveness))
+        .route("/health/ready", get(readiness))
+}
+
+async fn liveness() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
-pub async fn readiness(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
-    match sqlx::query("SELECT 1").execute(&state.db).await {
+async fn readiness(State(db): State<SqlitePool>) -> (StatusCode, Json<Value>) {
+    match sqlx::query("SELECT 1").execute(&db).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
         Err(e) => {
             tracing::warn!(error = ?e, "readiness check failed");

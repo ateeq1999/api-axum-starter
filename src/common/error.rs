@@ -10,11 +10,15 @@ pub enum AppError {
     #[error("{0}")]
     BadRequest(String),
     #[error("{0}")]
-    Unauthorized(&'static str),
+    Unauthorized(String),
+    #[error("{0}")]
+    Forbidden(String),
     #[error("resource not found")]
     NotFound,
     #[error("{0}")]
     Conflict(String),
+    #[error("too many requests, slow down and retry later")]
+    TooManyRequests,
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
     #[error("database error")]
@@ -43,6 +47,8 @@ impl AppError {
         match self {
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             Self::Unauthorized(_) => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
+            Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::Database(_) | Self::Internal(_) => {

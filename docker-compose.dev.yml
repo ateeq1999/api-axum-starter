@@ -1,0 +1,10 @@
+# Throwaway mail catcher for local development: nothing sent here leaves your machine.
+#   docker compose -f docker-compose.dev.yml up -d
+# Then in .env:  MAIL_ENABLED=true  SMTP_HOST=localhost  SMTP_PORT=1025  SMTP_TLS=none
+# Read the mail at http://localhost:8025
+services:
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"

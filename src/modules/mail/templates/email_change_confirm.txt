@@ -1,0 +1,7 @@
+Confirm your new email address
+
+Confirm that this address should replace the current one on your account.
+
+{{ link }}
+
+This link expires in {{ expires_in }}. If you did not expect this email you can ignore it.

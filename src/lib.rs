@@ -1,10 +1,6 @@
 pub mod app;
-pub mod auth;
+pub mod common;
 pub mod config;
-pub mod db;
-pub mod error;
-pub mod extract;
-pub mod health;
+pub mod infra;
+pub mod modules;
 pub mod state;
-pub mod telemetry;
-pub mod users;

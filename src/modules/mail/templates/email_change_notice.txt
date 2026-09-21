@@ -1,0 +1,4 @@
+Email change requested
+
+Someone asked to change the email address on your account to {{ new_email }}.
+Nothing changes until the new address is confirmed. If this was not you, change your password now.

@@ -1,0 +1,7 @@
+Confirm your email address
+
+Click the button below to confirm this email address.
+
+{{ link }}
+
+This link expires in {{ expires_in }}. If you did not expect this email you can ignore it.
