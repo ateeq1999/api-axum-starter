@@ -14,7 +14,7 @@ use crate::common::{
 
 macro_rules! columns {
     () => {
-        "id, email, password_hash, display_name, role, is_active, email_verified_at, created_at, updated_at, deleted_at"
+        "id, email, password_hash, display_name, role, is_active, email_verified_at, created_at, updated_at, deleted_at, avatar_key, password_set"
     };
 }
 
@@ -24,6 +24,8 @@ pub struct NewUser<'a> {
     pub display_name: Option<&'a str>,
     pub role: Role,
     pub email_verified: bool,
+    /// `false` for accounts created through OAuth that have no usable password.
+    pub password_set: bool,
 }
 
 #[derive(Default)]
@@ -54,8 +56,8 @@ impl UsersRepository {
     pub async fn create(&self, new: NewUser<'_>) -> AppResult<User> {
         let now = Utc::now();
         sqlx::query_as::<_, User>(concat!(
-            "INSERT INTO users (id, email, password_hash, display_name, role, email_verified_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO users (id, email, password_hash, display_name, role, email_verified_at, created_at, password_set)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              RETURNING ",
             columns!()
         ))
@@ -66,6 +68,7 @@ impl UsersRepository {
             .bind(new.role)
             .bind(new.email_verified.then_some(now))
             .bind(now)
+            .bind(new.password_set)
             .fetch_one(&self.db)
             .await
             .map_err(map_write_error)
@@ -146,7 +149,7 @@ impl UsersRepository {
     }
 
     pub async fn set_password_hash(&self, id: Uuid, password_hash: &str) -> AppResult<()> {
-        sqlx::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
+        sqlx::query("UPDATE users SET password_hash = ?, password_set = 1, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
             .bind(password_hash)
             .bind(Utc::now())
             .bind(id)
@@ -200,6 +203,45 @@ impl UsersRepository {
         .execute(&self.db)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    /// Sets (or clears) the profile photo. Returns the previous file name so the caller can
+    /// delete the old file.
+    pub async fn set_avatar_key(
+        &self,
+        id: Uuid,
+        avatar_key: Option<&str>,
+    ) -> AppResult<Option<Option<String>>> {
+        let mut tx = self.db.begin().await?;
+        let previous: Option<Option<String>> =
+            sqlx::query_scalar("SELECT avatar_key FROM users WHERE id = ? AND deleted_at IS NULL")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if previous.is_none() {
+            return Ok(None);
+        }
+        sqlx::query("UPDATE users SET avatar_key = ?, updated_at = ? WHERE id = ?")
+            .bind(avatar_key)
+            .bind(Utc::now())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(previous)
+    }
+
+    /// How many ways the user can currently sign in: password, linked OAuth accounts, passkeys.
+    /// (Deliberately reads the other features' tables: it is the one place that must know the total.)
+    pub async fn sign_in_method_count(&self, id: Uuid) -> AppResult<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT (SELECT password_set FROM users WHERE id = ?1)
+                  + (SELECT COUNT(*) FROM oauth_identities WHERE user_id = ?1)
+                  + (SELECT COUNT(*) FROM passkeys WHERE user_id = ?1)",
+        )
+        .bind(id)
+        .fetch_one(&self.db)
+        .await?)
     }
 
     pub async fn count_active_admins(&self) -> AppResult<i64> {

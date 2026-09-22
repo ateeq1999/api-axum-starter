@@ -19,6 +19,8 @@ pub enum AppError {
     Conflict(String),
     #[error("too many requests, slow down and retry later")]
     TooManyRequests,
+    #[error("{0}")]
+    PayloadTooLarge(String),
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
     #[error("database error")]
@@ -49,6 +51,7 @@ impl AppError {
             Self::Unauthorized(_) => (StatusCode::UNAUTHORIZED, "unauthorized"),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
+            Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::Database(_) | Self::Internal(_) => {

@@ -3,7 +3,10 @@
 use api_starter_axum::{
     app::build_router,
     common::security::JwtSettings,
-    config::{AccountConfig, Config, FrontendConfig, SmtpConfig, SmtpTls},
+    config::{
+        AccountConfig, Config, FrontendConfig, OAuthConfig, QrLoginConfig, SmtpConfig, SmtpTls,
+        StorageConfig, WebauthnConfig,
+    },
     infra::database,
     modules::mail::{MailService, OutgoingMail},
     state::AppState,
@@ -54,6 +57,24 @@ pub fn test_config() -> Config {
             max_concurrent_hashes: 8,
         },
         bootstrap_admin: None,
+        storage: StorageConfig {
+            upload_dir: std::env::temp_dir()
+                .join(format!("api-starter-axum-test-{}", uuid::Uuid::new_v4())),
+        },
+        oauth: OAuthConfig {
+            public_api_url: "https://api.test".into(),
+            google: None,
+            github: None,
+        },
+        webauthn: WebauthnConfig {
+            rp_id: "app.test".into(),
+            rp_name: "Test".into(),
+            origin: "https://app.test".into(),
+        },
+        qr_login: QrLoginConfig {
+            ttl_secs: 120,
+            poll_rate_limit_per_minute: 1000,
+        },
     }
 }
 
@@ -65,7 +86,9 @@ pub async fn spawn_with(config: Config) -> TestApp {
     // One connection: every in-memory SQLite connection is its own database.
     let pool = database::connect("sqlite::memory:", 1).await.unwrap();
     let mail = MailService::in_memory(&config.frontend.url);
-    let state = AppState::with_mail(pool, config, mail.clone());
+    let state = AppState::with_mail(pool, config, mail.clone())
+        .await
+        .unwrap();
     TestApp {
         router: build_router(state.clone()),
         state,
@@ -192,4 +215,63 @@ pub fn token_from(mail: &OutgoingMail) -> String {
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect()
+}
+
+pub struct RawResponse {
+    pub status: StatusCode,
+    pub headers: axum::http::HeaderMap,
+    pub body: axum::body::Bytes,
+}
+
+impl RawResponse {
+    pub fn json(&self) -> Value {
+        serde_json::from_slice(&self.body).unwrap_or(Value::Null)
+    }
+}
+
+impl TestApp {
+    /// Full control over the request: arbitrary headers and a raw body.
+    pub async fn raw(
+        &self,
+        method: Method,
+        uri: &str,
+        headers: &[(&str, &str)],
+        body: Vec<u8>,
+    ) -> RawResponse {
+        let mut builder = Request::builder().method(method).uri(uri);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        let response = self
+            .router
+            .clone()
+            .oneshot(builder.body(Body::from(body)).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        RawResponse {
+            status,
+            headers,
+            body,
+        }
+    }
+
+    /// JSON request with extra headers (for `X-API-Key`, `X-QR-Secret`, ...).
+    pub async fn json_with(
+        &self,
+        method: Method,
+        uri: &str,
+        headers: &[(&str, &str)],
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut all: Vec<(&str, &str)> = headers.to_vec();
+        if body.is_some() {
+            all.push(("content-type", "application/json"));
+        }
+        let bytes = body.map(|b| b.to_string().into_bytes()).unwrap_or_default();
+        let response = self.raw(method, uri, &all, bytes).await;
+        (response.status, response.json())
+    }
 }

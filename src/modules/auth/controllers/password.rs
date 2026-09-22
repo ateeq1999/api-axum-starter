@@ -7,7 +7,7 @@ use crate::{
         dto::MessageResponse,
         error::AppResult,
         extractors::ValidatedJson,
-        security::{AdminUser, AuthUser},
+        security::{AdminUser, SessionUser},
     },
     modules::{
         auth::{
@@ -53,7 +53,7 @@ async fn reset(
 }
 
 async fn change(
-    actor: AuthUser,
+    SessionUser(actor): SessionUser,
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<ChangePasswordDto>,
 ) -> AppResult<Json<MessageResponse>> {

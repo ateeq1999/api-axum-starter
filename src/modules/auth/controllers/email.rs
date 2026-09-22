@@ -4,7 +4,10 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 
 use crate::{
     common::{
-        dto::MessageResponse, error::AppResult, extractors::ValidatedJson, security::AuthUser,
+        dto::MessageResponse,
+        error::AppResult,
+        extractors::ValidatedJson,
+        security::{AuthUser, SessionUser},
     },
     modules::auth::{
         dto::{ChangeEmailDto, VerifyEmailDto},
@@ -47,7 +50,7 @@ async fn resend(
 }
 
 async fn request_change(
-    actor: AuthUser,
+    SessionUser(actor): SessionUser,
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<ChangeEmailDto>,
 ) -> AppResult<(StatusCode, Json<MessageResponse>)> {

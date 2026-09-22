@@ -154,8 +154,46 @@ impl UsersService {
                 display_name,
                 role,
                 email_verified,
+                password_set: true,
             })
             .await
+    }
+
+    /// Creates an account that signs in through an external provider and has no password.
+    /// The stored hash is not a valid password hash, so no password can ever match it.
+    pub async fn create_passwordless(
+        &self,
+        email: &str,
+        display_name: Option<&str>,
+        email_verified: bool,
+    ) -> AppResult<User> {
+        self.repo
+            .create(NewUser {
+                email: &normalize_email(email),
+                password_hash: "!no-password",
+                display_name,
+                role: Role::User,
+                email_verified,
+                password_set: false,
+            })
+            .await
+    }
+
+    /// Returns the previous avatar file name (if any) so the caller can delete the file.
+    pub async fn set_avatar_key(
+        &self,
+        id: Uuid,
+        avatar_key: Option<&str>,
+    ) -> AppResult<Option<String>> {
+        Ok(self
+            .repo
+            .set_avatar_key(id, avatar_key)
+            .await?
+            .ok_or(UsersError::NotFound)?)
+    }
+
+    pub async fn sign_in_method_count(&self, id: Uuid) -> AppResult<i64> {
+        self.repo.sign_in_method_count(id).await
     }
 
     pub async fn find_by_email(&self, email: &str) -> AppResult<Option<User>> {

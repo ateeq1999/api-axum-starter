@@ -82,7 +82,7 @@ async fn serve() -> anyhow::Result<()> {
     let bind_addr = config.bind_addr;
     let bootstrap_admin = config.bootstrap_admin.clone();
 
-    let state = AppState::new(pool, config)?;
+    let state = AppState::new(pool, config).await?;
     if let Some(admin) = bootstrap_admin {
         state
             .users

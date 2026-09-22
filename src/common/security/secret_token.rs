@@ -24,6 +24,11 @@ pub fn hash(raw: &str) -> String {
         .collect()
 }
 
+/// PKCE `S256` code challenge for a verifier: base64url(SHA-256(verifier)) (RFC 7636).
+pub fn pkce_challenge(verifier: &str) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -37,6 +42,14 @@ mod tests {
         assert_eq!(a.hash, hash(&a.raw));
         assert_eq!(a.hash.len(), 64);
         assert_ne!(a.hash, a.raw);
+    }
+
+    #[test]
+    fn pkce_challenge_matches_the_rfc_example() {
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
     }
 
     #[test]

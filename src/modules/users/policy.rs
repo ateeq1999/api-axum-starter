@@ -35,10 +35,7 @@ mod tests {
     use super::*;
 
     fn actor(role: Role) -> AuthUser {
-        AuthUser {
-            id: Uuid::new_v4(),
-            role,
-        }
+        AuthUser::session(Uuid::new_v4(), role)
     }
 
     fn patch(role: Option<Role>, is_active: Option<bool>) -> UpdateUserDto {

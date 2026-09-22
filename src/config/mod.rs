@@ -1,5 +1,11 @@
 use std::{env, fmt, net::SocketAddr, str::FromStr};
 
+pub mod features;
+
+pub use features::{
+    OAuthConfig, OAuthProviderConfig, QrLoginConfig, StorageConfig, WebauthnConfig,
+};
+
 use crate::common::security::{JwtSettings, password};
 
 #[derive(Debug, thiserror::Error)]
@@ -19,6 +25,10 @@ pub struct Config {
     pub frontend: FrontendConfig,
     pub account: AccountConfig,
     pub bootstrap_admin: Option<BootstrapAdmin>,
+    pub storage: StorageConfig,
+    pub oauth: OAuthConfig,
+    pub webauthn: WebauthnConfig,
+    pub qr_login: QrLoginConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,11 +113,11 @@ fn required(name: &'static str) -> Result<String, ConfigError> {
     env::var(name).map_err(|_| ConfigError::Missing(name))
 }
 
-fn non_empty(name: &'static str) -> Option<String> {
+pub(crate) fn non_empty(name: &'static str) -> Option<String> {
     env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
-fn optional<T>(name: &'static str, default: T) -> Result<T, ConfigError>
+pub(crate) fn optional<T>(name: &'static str, default: T) -> Result<T, ConfigError>
 where
     T: FromStr,
     T::Err: fmt::Display,
@@ -176,19 +186,23 @@ impl Config {
             }
         };
 
+        let bind_addr: SocketAddr = optional("BIND_ADDR", "127.0.0.1:3000".parse().unwrap())?;
+        let frontend = FrontendConfig {
+            url: optional("FRONTEND_URL", "http://localhost:5173".to_string())?
+                .trim_end_matches('/')
+                .to_string(),
+        };
+        let webauthn = WebauthnConfig::from_env(&frontend.url)?;
+
         Ok(Self {
             database_url: required("DATABASE_URL")?,
-            bind_addr: optional("BIND_ADDR", "127.0.0.1:3000".parse().unwrap())?,
+            bind_addr,
             jwt: JwtSettings {
                 secret: jwt_secret,
                 ttl_secs: optional("JWT_TTL_SECS", 3600)?,
             },
             smtp,
-            frontend: FrontendConfig {
-                url: optional("FRONTEND_URL", "http://localhost:5173".to_string())?
-                    .trim_end_matches('/')
-                    .to_string(),
-            },
+            frontend,
             account: AccountConfig {
                 password_reset_ttl_minutes: optional("PASSWORD_RESET_TTL_MINUTES", 30)?,
                 email_verification_ttl_hours: optional("EMAIL_VERIFICATION_TTL_HOURS", 24)?,
@@ -198,6 +212,10 @@ impl Config {
                 max_concurrent_hashes,
             },
             bootstrap_admin,
+            storage: StorageConfig::from_env()?,
+            oauth: OAuthConfig::from_env(bind_addr)?,
+            webauthn,
+            qr_login: QrLoginConfig::from_env()?,
         })
     }
 }
