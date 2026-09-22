@@ -294,7 +294,7 @@ async fn signing_in_again_reuses_the_same_account() {
 async fn a_verified_local_account_with_the_same_email_is_linked() {
     let app = app_with_providers().await;
     let (user_id, _) = app.user("local@example.com").await;
-    sqlx::query("UPDATE users SET email_verified_at = ? WHERE email = 'local@example.com'")
+    sqlx::query("UPDATE users SET email_verified_at = $1 WHERE email = 'local@example.com'")
         .bind(chrono::Utc::now())
         .execute(&app.state.db)
         .await
@@ -405,7 +405,7 @@ async fn state_protects_against_forged_replayed_and_swapped_callbacks() {
 
     // expired
     let expired = start(&app, "google", None).await;
-    sqlx::query("UPDATE oauth_states SET expires_at = ?")
+    sqlx::query("UPDATE oauth_states SET expires_at = $1")
         .bind(chrono::Utc::now() - chrono::Duration::minutes(1))
         .execute(&app.state.db)
         .await
@@ -457,7 +457,7 @@ async fn a_deactivated_account_cannot_sign_in() {
     let app = app_with_providers().await;
     let profile = "g-8|off@example.com|true|Off";
     param(&sign_in(&app, "google", profile).await, "code").unwrap();
-    sqlx::query("UPDATE users SET is_active = 0 WHERE email = 'off@example.com'")
+    sqlx::query("UPDATE users SET is_active = FALSE WHERE email = 'off@example.com'")
         .execute(&app.state.db)
         .await
         .unwrap();

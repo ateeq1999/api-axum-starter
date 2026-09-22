@@ -1,6 +1,6 @@
 # api-starter-axum
 
-A REST API starter built on [axum](https://github.com/tokio-rs/axum), SQLite (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos, Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in and API keys.
+A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos, Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in, API keys, and a durable Postgres-backed background job queue.
 
 Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 
@@ -11,7 +11,7 @@ cp .env.example .env        # then set JWT_SECRET (openssl rand -hex 32)
 cargo run
 ```
 
-The server listens on `127.0.0.1:3000` by default. Migrations run automatically at startup and the SQLite file is created if missing.
+The server listens on `127.0.0.1:3000` by default. Migrations run automatically at startup against the Postgres database named in `DATABASE_URL` (create the database first; the app does not create it for you).
 
 ```bash
 curl -X POST localhost:3000/api/v1/auth/register \
@@ -64,7 +64,7 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | required | e.g. `sqlite://app.db` |
+| `DATABASE_URL` | required | e.g. `postgres://postgres:postgres@localhost:5432/api_starter_db` |
 | `BIND_ADDR` | `127.0.0.1:3000` | Listen address |
 | `JWT_SECRET` | required | At least 32 characters |
 | `JWT_TTL_SECS` | `3600` | Access token lifetime |
@@ -191,7 +191,7 @@ Each feature is a folder under `modules/` and owns its controller, service, repo
 src/
 ├── main.rs, lib.rs, app.rs, state.rs   boot, router assembly, AppState (holds the services)
 ├── config/                             environment-driven Config
-├── infra/                              database pool + migrations, tracing setup
+├── infra/                              database pool + migrations, tracing setup, jobs/ (background job queue)
 ├── common/                             feature-agnostic building blocks
 │   ├── error.rs                        AppError -> HTTP response
 │   ├── dto/                            Pagination, MessageResponse
@@ -208,7 +208,7 @@ src/
     ├── oauth/                          Google and GitHub (PKCE, state, one-time exchange code)
     ├── passkeys/                       WebAuthn registration and usernameless sign-in
     └── qr_login/                       QR-code sign-in sessions
-migrations/                             0001 users ... 0008 QR login (applied automatically at startup)
+migrations/                             0001 users ... 0009 job queue (applied automatically at startup)
 seeds/seed.sql, seeds/reset.sql         development seed data / wipe (`cargo run -- seed [--fresh]`)
 tests/                                  integration tests (see Testing)
 ```
@@ -254,6 +254,14 @@ Links point at your frontend: `{FRONTEND_URL}/reset-password?token=...`, `/verif
 
 `MailService` renders each email as text plus HTML and sends it in a background task with up to 3 attempts (1 s and 4 s backoff) for transient SMTP errors. A mail failure is logged (without the link) and never fails a request. Pending mail is given 5 seconds to drain on shutdown.
 
+## Background jobs
+
+`infra/jobs/` is a small durable job queue backed by Postgres, claimed with `FOR UPDATE SKIP LOCKED` — the same mechanism the `pgmq` extension uses internally, so it needs no extension and works on any Postgres instance. It runs inside the same process as the web server (no separate worker to deploy) and is drained, like mail, for 5 seconds on shutdown.
+
+Today it runs one recurring job, `cleanup_expired_rows`: every hour it sweeps rows that expired over an hour ago from `auth_tokens`, `oauth_states`, `webauthn_challenges`, `qr_sessions` and `login_grants` (nothing did this on a schedule before; it only happened opportunistically on the next insert into the same table), then re-enqueues itself — a cron job with no `pg_cron` needed. It also prunes its own history (`succeeded` rows after a day, `dead` rows after a month), so the `jobs` table does not grow forever.
+
+Add a job kind by matching on it in `infra/jobs/worker.rs::dispatch`, following the shape of `infra/jobs/cleanup.rs`. Failed jobs back off (1s, 4s, 16s, then every 16s) and move to a `dead` status after 5 attempts, kept (not deleted) so they stay inspectable. See `queue.md` at the repo root for the full design rationale, including why a Redis- or broker-backed queue was not used.
+
 To use your SMTP server, set `MAIL_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `MAIL_FROM` and, if required, `SMTP_USERNAME`/`SMTP_PASSWORD`. TLS uses the system trust store; for a private CA set `SSL_CERT_FILE`, or use `SMTP_TLS=none` on a private Docker network. For mail to reach inboxes, the sending domain needs SPF, DKIM and DMARC records.
 
 To catch mail locally instead of sending it:
@@ -271,7 +279,7 @@ cargo clippy --all-targets
 ```
 
 - Unit tests sit next to the code (token hashing, policy rules, pagination, rate limiter, templates, ...).
-- `tests/*.rs` drive the full router in-process against an in-memory SQLite database, with an in-memory mail transport so tests can read the emailed links: `auth`, `users`, `avatars`, `api_keys`, `oauth` (against a fake Google/GitHub server), `passkeys` (a software authenticator performs the real WebAuthn ceremonies), `qr_login`, `seed`.
+- `tests/*.rs` drive the full router in-process against a fresh, throwaway Postgres database created per test (see `tests/common/mod.rs`; needs `TEST_DATABASE_URL` or a local Postgres on `localhost:5432` with the default `postgres`/`postgres` credentials), with an in-memory mail transport so tests can read the emailed links: `auth`, `users`, `avatars`, `api_keys`, `oauth` (against a fake Google/GitHub server), `passkeys` (a software authenticator performs the real WebAuthn ceremonies), `qr_login`, `jobs`, `seed`.
 - `tests/mail_smtp.rs` runs the real SMTP transport against a small fake SMTP server.
 
 ## Known limits

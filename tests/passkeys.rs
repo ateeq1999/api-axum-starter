@@ -235,7 +235,7 @@ async fn unknown_passkeys_and_expired_challenges_fail() {
         .post("/api/v1/auth/passkeys/login/begin", None, json!({}))
         .await;
     let credential = answer_login(&mut wa, &begin, &credential_id, &user_id, ORIGIN);
-    sqlx::query("UPDATE webauthn_challenges SET expires_at = ?")
+    sqlx::query("UPDATE webauthn_challenges SET expires_at = $1")
         .bind(chrono::Utc::now() - chrono::Duration::minutes(1))
         .execute(&app.state.db)
         .await
@@ -281,7 +281,7 @@ async fn deactivated_accounts_cannot_use_their_passkeys() {
     let (_, _, reg) = register(&app, &token, &mut wa, "Key", ORIGIN).await;
     let credential_id = reg["rawId"].clone();
 
-    sqlx::query("UPDATE users SET is_active = 0")
+    sqlx::query("UPDATE users SET is_active = FALSE")
         .execute(&app.state.db)
         .await
         .unwrap();

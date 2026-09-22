@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::extract::FromRef;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::{
     common::{
@@ -39,22 +39,18 @@ pub struct AppState {
     pub jwt: Arc<JwtSettings>,
     pub rate_limiter: RateLimiter,
     pub config: Arc<Config>,
-    pub db: SqlitePool,
+    pub db: PgPool,
 }
 
 impl AppState {
-    pub async fn new(db: SqlitePool, config: Config) -> anyhow::Result<Self> {
+    pub async fn new(db: PgPool, config: Config) -> anyhow::Result<Self> {
         let mail = MailService::new(&config.smtp, &config.frontend)?;
         Self::with_mail(db, config, mail).await
     }
 
     /// Same wiring with an explicit mail service (tests inject an in-memory one).
     /// Fails on startup misconfiguration (bad WebAuthn relying party, unwritable upload dir).
-    pub async fn with_mail(
-        db: SqlitePool,
-        config: Config,
-        mail: MailService,
-    ) -> anyhow::Result<Self> {
+    pub async fn with_mail(db: PgPool, config: Config, mail: MailService) -> anyhow::Result<Self> {
         password::set_max_concurrent_hashes(config.account.max_concurrent_hashes);
 
         let users = UsersService::new(UsersRepository::new(db.clone()));

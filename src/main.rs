@@ -82,6 +82,7 @@ async fn serve() -> anyhow::Result<()> {
     let bind_addr = config.bind_addr;
     let bootstrap_admin = config.bootstrap_admin.clone();
 
+    let jobs = infra::jobs::spawn(pool.clone());
     let state = AppState::new(pool, config).await?;
     if let Some(admin) = bootstrap_admin {
         state
@@ -102,6 +103,7 @@ async fn serve() -> anyhow::Result<()> {
     .await?;
 
     mail.shutdown(Duration::from_secs(5)).await;
+    jobs.shutdown(Duration::from_secs(5)).await;
     tracing::info!("shutdown complete");
     Ok(())
 }

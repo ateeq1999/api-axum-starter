@@ -1,6 +1,6 @@
 use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
 use serde_json::{Value, json};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::state::AppState;
 
@@ -14,7 +14,7 @@ async fn liveness() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
-async fn readiness(State(db): State<SqlitePool>) -> (StatusCode, Json<Value>) {
+async fn readiness(State(db): State<PgPool>) -> (StatusCode, Json<Value>) {
     match sqlx::query("SELECT 1").execute(&db).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
         Err(e) => {

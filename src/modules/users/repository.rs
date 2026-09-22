@@ -1,5 +1,5 @@
 use chrono::Utc;
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
 use super::{
@@ -45,11 +45,11 @@ pub struct UserFilter<'a> {
 
 #[derive(Clone)]
 pub struct UsersRepository {
-    db: SqlitePool,
+    db: PgPool,
 }
 
 impl UsersRepository {
-    pub fn new(db: SqlitePool) -> Self {
+    pub fn new(db: PgPool) -> Self {
         Self { db }
     }
 
@@ -57,7 +57,7 @@ impl UsersRepository {
         let now = Utc::now();
         sqlx::query_as::<_, User>(concat!(
             "INSERT INTO users (id, email, password_hash, display_name, role, email_verified_at, created_at, password_set)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING ",
             columns!()
         ))
@@ -78,7 +78,7 @@ impl UsersRepository {
         Ok(sqlx::query_as::<_, User>(concat!(
             "SELECT ",
             columns!(),
-            " FROM users WHERE email = ? AND deleted_at IS NULL"
+            " FROM users WHERE email = $1 AND deleted_at IS NULL"
         ))
         .bind(email)
         .fetch_optional(&self.db)
@@ -89,7 +89,7 @@ impl UsersRepository {
         Ok(sqlx::query_as::<_, User>(concat!(
             "SELECT ",
             columns!(),
-            " FROM users WHERE id = ? AND deleted_at IS NULL"
+            " FROM users WHERE id = $1 AND deleted_at IS NULL"
         ))
         .bind(id)
         .fetch_optional(&self.db)
@@ -100,7 +100,7 @@ impl UsersRepository {
         let pattern = filter.search.map(|q| format!("%{}%", escape_like(q)));
 
         let mut count =
-            QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL");
+            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL");
         push_search(&mut count, pattern.as_deref());
         let total: i64 = count.build_query_scalar().fetch_one(&self.db).await?;
 
@@ -113,7 +113,7 @@ impl UsersRepository {
             SortOrder::Desc => "DESC",
         };
 
-        let mut select = QueryBuilder::<Sqlite>::new(concat!(
+        let mut select = QueryBuilder::<Postgres>::new(concat!(
             "SELECT ",
             columns!(),
             " FROM users WHERE deleted_at IS NULL"
@@ -132,7 +132,7 @@ impl UsersRepository {
     }
 
     pub async fn update(&self, id: Uuid, patch: UserPatch<'_>) -> AppResult<Option<User>> {
-        let mut qb = QueryBuilder::<Sqlite>::new("UPDATE users SET updated_at = ");
+        let mut qb = QueryBuilder::<Postgres>::new("UPDATE users SET updated_at = ");
         qb.push_bind(Utc::now());
         if let Some(name) = patch.display_name {
             qb.push(", display_name = ").push_bind(name);
@@ -149,7 +149,7 @@ impl UsersRepository {
     }
 
     pub async fn set_password_hash(&self, id: Uuid, password_hash: &str) -> AppResult<()> {
-        sqlx::query("UPDATE users SET password_hash = ?, password_set = 1, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
+        sqlx::query("UPDATE users SET password_hash = $1, password_set = TRUE, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL")
             .bind(password_hash)
             .bind(Utc::now())
             .bind(id)
@@ -161,8 +161,8 @@ impl UsersRepository {
     pub async fn mark_email_verified(&self, id: Uuid) -> AppResult<()> {
         let now = Utc::now();
         sqlx::query(
-            "UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?), updated_at = ?
-             WHERE id = ? AND deleted_at IS NULL",
+            "UPDATE users SET email_verified_at = COALESCE(email_verified_at, $1), updated_at = $2
+             WHERE id = $3 AND deleted_at IS NULL",
         )
         .bind(now)
         .bind(now)
@@ -176,8 +176,8 @@ impl UsersRepository {
     pub async fn change_email(&self, id: Uuid, new_email: &str) -> AppResult<()> {
         let now = Utc::now();
         sqlx::query(
-            "UPDATE users SET email = ?, email_verified_at = ?, updated_at = ?
-             WHERE id = ? AND deleted_at IS NULL",
+            "UPDATE users SET email = $1, email_verified_at = $2, updated_at = $3
+             WHERE id = $4 AND deleted_at IS NULL",
         )
         .bind(new_email)
         .bind(now)
@@ -193,8 +193,8 @@ impl UsersRepository {
     pub async fn soft_delete(&self, id: Uuid, released_email: &str) -> AppResult<bool> {
         let now = Utc::now();
         let result = sqlx::query(
-            "UPDATE users SET deleted_at = ?, updated_at = ?, is_active = 0, email = ?
-             WHERE id = ? AND deleted_at IS NULL",
+            "UPDATE users SET deleted_at = $1, updated_at = $2, is_active = FALSE, email = $3
+             WHERE id = $4 AND deleted_at IS NULL",
         )
         .bind(now)
         .bind(now)
@@ -214,14 +214,14 @@ impl UsersRepository {
     ) -> AppResult<Option<Option<String>>> {
         let mut tx = self.db.begin().await?;
         let previous: Option<Option<String>> =
-            sqlx::query_scalar("SELECT avatar_key FROM users WHERE id = ? AND deleted_at IS NULL")
+            sqlx::query_scalar("SELECT avatar_key FROM users WHERE id = $1 AND deleted_at IS NULL")
                 .bind(id)
                 .fetch_optional(&mut *tx)
                 .await?;
         if previous.is_none() {
             return Ok(None);
         }
-        sqlx::query("UPDATE users SET avatar_key = ?, updated_at = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET avatar_key = $1, updated_at = $2 WHERE id = $3")
             .bind(avatar_key)
             .bind(Utc::now())
             .bind(id)
@@ -235,9 +235,9 @@ impl UsersRepository {
     /// (Deliberately reads the other features' tables: it is the one place that must know the total.)
     pub async fn sign_in_method_count(&self, id: Uuid) -> AppResult<i64> {
         Ok(sqlx::query_scalar(
-            "SELECT (SELECT password_set FROM users WHERE id = ?1)
-                  + (SELECT COUNT(*) FROM oauth_identities WHERE user_id = ?1)
-                  + (SELECT COUNT(*) FROM passkeys WHERE user_id = ?1)",
+            "SELECT (SELECT CASE WHEN password_set THEN 1 ELSE 0 END FROM users WHERE id = $1)
+                  + (SELECT COUNT(*) FROM oauth_identities WHERE user_id = $1)
+                  + (SELECT COUNT(*) FROM passkeys WHERE user_id = $1)",
         )
         .bind(id)
         .fetch_one(&self.db)
@@ -246,14 +246,14 @@ impl UsersRepository {
 
     pub async fn count_active_admins(&self) -> AppResult<i64> {
         Ok(sqlx::query_scalar(
-            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1 AND deleted_at IS NULL",
+            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND deleted_at IS NULL",
         )
         .fetch_one(&self.db)
         .await?)
     }
 }
 
-fn push_search(qb: &mut QueryBuilder<Sqlite>, pattern: Option<&str>) {
+fn push_search(qb: &mut QueryBuilder<Postgres>, pattern: Option<&str>) {
     if let Some(pattern) = pattern {
         qb.push(" AND (email LIKE ")
             .push_bind(pattern.to_string())

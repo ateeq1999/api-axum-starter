@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::{
@@ -16,11 +16,11 @@ macro_rules! identity_columns {
 
 #[derive(Clone)]
 pub struct OAuthRepository {
-    db: SqlitePool,
+    db: PgPool,
 }
 
 impl OAuthRepository {
-    pub fn new(db: SqlitePool) -> Self {
+    pub fn new(db: PgPool) -> Self {
         Self { db }
     }
 
@@ -37,14 +37,14 @@ impl OAuthRepository {
     ) -> AppResult<()> {
         let now = Utc::now();
         // Opportunistic cleanup of abandoned requests.
-        sqlx::query("DELETE FROM oauth_states WHERE expires_at < ?")
+        sqlx::query("DELETE FROM oauth_states WHERE expires_at < $1")
             .bind(now)
             .execute(&self.db)
             .await?;
         sqlx::query(
             "INSERT INTO oauth_states
                  (state_hash, provider, pkce_verifier, user_id, redirect_path, expires_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(state_hash)
         .bind(provider)
@@ -61,7 +61,7 @@ impl OAuthRepository {
     /// Atomically consumes the request: a `state` value works exactly once, and only before it expires.
     pub async fn claim_state(&self, state_hash: &str) -> AppResult<Option<OAuthState>> {
         Ok(sqlx::query_as::<_, OAuthState>(
-            "DELETE FROM oauth_states WHERE state_hash = ? AND expires_at > ?
+            "DELETE FROM oauth_states WHERE state_hash = $1 AND expires_at > $2
              RETURNING provider, pkce_verifier, user_id, redirect_path",
         )
         .bind(state_hash)
@@ -80,7 +80,7 @@ impl OAuthRepository {
         Ok(sqlx::query_as::<_, OAuthIdentity>(concat!(
             "SELECT ",
             identity_columns!(),
-            " FROM oauth_identities WHERE provider = ? AND provider_user_id = ?"
+            " FROM oauth_identities WHERE provider = $1 AND provider_user_id = $2"
         ))
         .bind(provider)
         .bind(provider_user_id)
@@ -92,7 +92,7 @@ impl OAuthRepository {
         Ok(sqlx::query_as::<_, OAuthIdentity>(concat!(
             "SELECT ",
             identity_columns!(),
-            " FROM oauth_identities WHERE user_id = ? ORDER BY created_at"
+            " FROM oauth_identities WHERE user_id = $1 ORDER BY created_at"
         ))
         .bind(user_id)
         .fetch_all(&self.db)
@@ -108,9 +108,10 @@ impl OAuthRepository {
         email: Option<&str>,
     ) -> AppResult<bool> {
         let result = sqlx::query(
-            "INSERT OR IGNORE INTO oauth_identities
+            "INSERT INTO oauth_identities
                  (id, user_id, provider, provider_user_id, email, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (provider, provider_user_id) DO NOTHING",
         )
         .bind(Uuid::new_v4())
         .bind(user_id)
@@ -124,11 +125,12 @@ impl OAuthRepository {
     }
 
     pub async fn delete_identity(&self, user_id: Uuid, provider: Provider) -> AppResult<bool> {
-        let result = sqlx::query("DELETE FROM oauth_identities WHERE user_id = ? AND provider = ?")
-            .bind(user_id)
-            .bind(provider)
-            .execute(&self.db)
-            .await?;
+        let result =
+            sqlx::query("DELETE FROM oauth_identities WHERE user_id = $1 AND provider = $2")
+                .bind(user_id)
+                .bind(provider)
+                .execute(&self.db)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -141,12 +143,12 @@ impl OAuthRepository {
         expires_at: DateTime<Utc>,
     ) -> AppResult<()> {
         let now = Utc::now();
-        sqlx::query("DELETE FROM login_grants WHERE expires_at < ?")
+        sqlx::query("DELETE FROM login_grants WHERE expires_at < $1")
             .bind(now)
             .execute(&self.db)
             .await?;
         sqlx::query(
-            "INSERT INTO login_grants (code_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO login_grants (code_hash, user_id, expires_at, created_at) VALUES ($1, $2, $3, $4)",
         )
         .bind(code_hash)
         .bind(user_id)
@@ -160,13 +162,12 @@ impl OAuthRepository {
     /// Atomically consumes a grant and returns who it was issued for.
     pub async fn claim_grant(&self, code_hash: &str) -> AppResult<Option<Uuid>> {
         Ok(sqlx::query_scalar(
-            "UPDATE login_grants SET used_at = ?
-             WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?
+            "UPDATE login_grants SET used_at = $1
+             WHERE code_hash = $2 AND used_at IS NULL AND expires_at > $1
              RETURNING user_id",
         )
         .bind(Utc::now())
         .bind(code_hash)
-        .bind(Utc::now())
         .fetch_optional(&self.db)
         .await?)
     }

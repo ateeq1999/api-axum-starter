@@ -3,7 +3,7 @@ pub mod one_time_tokens;
 pub mod password_reset;
 pub mod session;
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use self::{
     email_verification::EmailVerificationService, one_time_tokens::OneTimeTokenService,
@@ -24,7 +24,7 @@ pub struct AuthService {
 }
 
 impl AuthService {
-    pub fn new(db: SqlitePool, users: UsersService, mail: MailService, config: &Config) -> Self {
+    pub fn new(db: PgPool, users: UsersService, mail: MailService, config: &Config) -> Self {
         let tokens = OneTimeTokenService::new(AuthTokenRepository::new(db));
         let email_verification = EmailVerificationService::new(
             users.clone(),

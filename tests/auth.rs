@@ -234,7 +234,7 @@ async fn expired_reset_token_is_rejected() {
     .await;
     let reset_token = token_from(&app.mails_to("gina@example.com").await[1]);
 
-    sqlx::query("UPDATE auth_tokens SET expires_at = ? WHERE purpose = 'password_reset'")
+    sqlx::query("UPDATE auth_tokens SET expires_at = $1 WHERE purpose = 'password_reset'")
         .bind(chrono::Utc::now() - chrono::Duration::minutes(1))
         .execute(&app.state.db)
         .await

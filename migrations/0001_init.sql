@@ -1,6 +1,6 @@
 CREATE TABLE users (
-    id            TEXT PRIMARY KEY NOT NULL,
+    id            UUID PRIMARY KEY NOT NULL,
     email         TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    created_at    TEXT NOT NULL
+    created_at    TIMESTAMPTZ NOT NULL
 );

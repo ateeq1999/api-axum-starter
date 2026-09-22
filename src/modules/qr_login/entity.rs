@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 /// pending -> scanned -> approved -> consumed, or -> rejected at any point before consumed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(rename_all = "lowercase")]
+#[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum QrStatus {
     /// Shown on the new device, nobody has scanned it yet.
     Pending,

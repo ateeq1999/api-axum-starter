@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::entity::ApiKey;
@@ -22,18 +22,18 @@ pub struct NewApiKey<'a> {
 
 #[derive(Clone)]
 pub struct ApiKeysRepository {
-    db: SqlitePool,
+    db: PgPool,
 }
 
 impl ApiKeysRepository {
-    pub fn new(db: SqlitePool) -> Self {
+    pub fn new(db: PgPool) -> Self {
         Self { db }
     }
 
     pub async fn insert(&self, new: NewApiKey<'_>) -> AppResult<ApiKey> {
         Ok(sqlx::query_as::<_, ApiKey>(concat!(
             "INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scope, expires_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING ",
             columns!()
         ))
@@ -55,7 +55,7 @@ impl ApiKeysRepository {
         Ok(sqlx::query_as::<_, ApiKey>(concat!(
             "SELECT ",
             columns!(),
-            " FROM api_keys WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC"
+            " FROM api_keys WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC"
         ))
         .bind(user_id)
         .fetch_all(&self.db)
@@ -66,7 +66,7 @@ impl ApiKeysRepository {
         Ok(sqlx::query_as::<_, ApiKey>(concat!(
             "SELECT ",
             columns!(),
-            " FROM api_keys WHERE key_hash = ?"
+            " FROM api_keys WHERE key_hash = $1"
         ))
         .bind(key_hash)
         .fetch_optional(&self.db)
@@ -76,7 +76,7 @@ impl ApiKeysRepository {
     /// Revokes one of the user's keys. Returns false if it does not exist or is already revoked.
     pub async fn revoke(&self, user_id: Uuid, id: Uuid) -> AppResult<bool> {
         let result = sqlx::query(
-            "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+            "UPDATE api_keys SET revoked_at = $1 WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL",
         )
         .bind(Utc::now())
         .bind(id)
@@ -89,8 +89,8 @@ impl ApiKeysRepository {
     /// Records use, at most once a minute per key, so authenticating does not write on every request.
     pub async fn touch(&self, id: Uuid, now: DateTime<Utc>) -> AppResult<()> {
         sqlx::query(
-            "UPDATE api_keys SET last_used_at = ?
-             WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)",
+            "UPDATE api_keys SET last_used_at = $1
+             WHERE id = $2 AND (last_used_at IS NULL OR last_used_at < $3)",
         )
         .bind(now)
         .bind(id)

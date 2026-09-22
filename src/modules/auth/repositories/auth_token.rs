@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
@@ -9,11 +9,11 @@ use crate::{
 
 #[derive(Clone)]
 pub struct AuthTokenRepository {
-    db: SqlitePool,
+    db: PgPool,
 }
 
 impl AuthTokenRepository {
-    pub fn new(db: SqlitePool) -> Self {
+    pub fn new(db: PgPool) -> Self {
         Self { db }
     }
 
@@ -27,7 +27,7 @@ impl AuthTokenRepository {
     ) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO auth_tokens (id, user_id, purpose, token_hash, new_email, expires_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(Uuid::new_v4())
         .bind(user_id)
@@ -44,7 +44,7 @@ impl AuthTokenRepository {
     /// Marks every still-unused token of this kind as used, so only the newest link works.
     pub async fn invalidate_unused(&self, user_id: Uuid, purpose: TokenPurpose) -> AppResult<()> {
         sqlx::query(
-            "UPDATE auth_tokens SET used_at = ? WHERE user_id = ? AND purpose = ? AND used_at IS NULL",
+            "UPDATE auth_tokens SET used_at = $1 WHERE user_id = $2 AND purpose = $3 AND used_at IS NULL",
         )
         .bind(Utc::now())
         .bind(user_id)
@@ -63,14 +63,13 @@ impl AuthTokenRepository {
     ) -> AppResult<Option<AuthToken>> {
         let now = Utc::now();
         Ok(sqlx::query_as::<_, AuthToken>(
-            "UPDATE auth_tokens SET used_at = ?
-             WHERE token_hash = ? AND purpose = ? AND used_at IS NULL AND expires_at > ?
+            "UPDATE auth_tokens SET used_at = $1
+             WHERE token_hash = $2 AND purpose = $3 AND used_at IS NULL AND expires_at > $1
              RETURNING id, user_id, purpose, token_hash, new_email, expires_at, used_at, created_at",
         )
             .bind(now)
             .bind(token_hash)
             .bind(purpose)
-            .bind(now)
             .fetch_optional(&self.db)
             .await?)
     }
@@ -82,7 +81,7 @@ impl AuthTokenRepository {
         since: DateTime<Utc>,
     ) -> AppResult<i64> {
         Ok(sqlx::query_scalar(
-            "SELECT COUNT(*) FROM auth_tokens WHERE user_id = ? AND purpose = ? AND created_at > ?",
+            "SELECT COUNT(*) FROM auth_tokens WHERE user_id = $1 AND purpose = $2 AND created_at > $3",
         )
         .bind(user_id)
         .bind(purpose)

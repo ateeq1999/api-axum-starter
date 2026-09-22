@@ -158,7 +158,7 @@ async fn revoked_expired_and_unknown_keys_are_rejected() {
 
     // expiry
     let (short, _) = create_key(&app, &session, "read").await;
-    sqlx::query("UPDATE api_keys SET expires_at = ? WHERE revoked_at IS NULL")
+    sqlx::query("UPDATE api_keys SET expires_at = $1 WHERE revoked_at IS NULL")
         .bind(chrono::Utc::now() - chrono::Duration::minutes(1))
         .execute(&app.state.db)
         .await

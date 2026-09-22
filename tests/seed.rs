@@ -1,6 +1,6 @@
 mod common;
 
-use api_starter_axum::infra::{database, seed};
+use api_starter_axum::infra::seed;
 use axum::http::StatusCode;
 use serde_json::json;
 
@@ -8,7 +8,7 @@ const SEED_PASSWORD: &str = "Password123!";
 
 #[tokio::test]
 async fn seed_is_idempotent() {
-    let pool = database::connect("sqlite::memory:", 1).await.unwrap();
+    let pool = common::fresh_pool().await;
     assert_eq!(seed::run(&pool).await.unwrap(), 5);
     assert_eq!(seed::run(&pool).await.unwrap(), 5);
 

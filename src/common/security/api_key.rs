@@ -11,7 +11,7 @@ pub const API_KEY_PREFIX: &str = "ak_";
 /// What an API key may do. `Read` keys are limited to safe HTTP methods (GET, HEAD, OPTIONS).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[sqlx(rename_all = "lowercase")]
+#[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum ApiKeyScope {
     #[default]
     Read,

@@ -302,7 +302,7 @@ async fn expired_sessions_are_dead() {
     .await;
 
     // approved, but the browser did not collect in time
-    sqlx::query("UPDATE qr_sessions SET expires_at = ?")
+    sqlx::query("UPDATE qr_sessions SET expires_at = $1")
         .bind(chrono::Utc::now() - chrono::Duration::seconds(1))
         .execute(&app.state.db)
         .await
@@ -371,7 +371,7 @@ async fn a_disabled_account_cannot_collect_a_token() {
     )
     .await;
 
-    sqlx::query("UPDATE users SET is_active = 0")
+    sqlx::query("UPDATE users SET is_active = FALSE")
         .execute(&app.state.db)
         .await
         .unwrap();

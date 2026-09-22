@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::entity::{QrSession, QrStatus};
@@ -16,11 +16,11 @@ macro_rules! columns {
 
 #[derive(Clone)]
 pub struct QrRepository {
-    db: SqlitePool,
+    db: PgPool,
 }
 
 impl QrRepository {
-    pub fn new(db: SqlitePool) -> Self {
+    pub fn new(db: PgPool) -> Self {
         Self { db }
     }
 
@@ -35,14 +35,14 @@ impl QrRepository {
     ) -> AppResult<()> {
         let now = Utc::now();
         // Opportunistic cleanup of long-dead sessions.
-        sqlx::query("DELETE FROM qr_sessions WHERE expires_at < ?")
+        sqlx::query("DELETE FROM qr_sessions WHERE expires_at < $1")
             .bind(now - Duration::days(1))
             .execute(&self.db)
             .await?;
         sqlx::query(
             "INSERT INTO qr_sessions
                  (id, secret_hash, code, status, requester_ip, requester_agent, expires_at, created_at)
-             VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7)",
         )
         .bind(id)
         .bind(secret_hash)
@@ -60,7 +60,7 @@ impl QrRepository {
         Ok(sqlx::query_as::<_, QrSession>(concat!(
             "SELECT ",
             columns!(),
-            " FROM qr_sessions WHERE id = ?"
+            " FROM qr_sessions WHERE id = $1"
         ))
         .bind(id)
         .fetch_optional(&self.db)
@@ -70,8 +70,8 @@ impl QrRepository {
     /// pending -> scanned, atomically. False if someone else got there first, or it expired.
     pub async fn mark_scanned(&self, id: &str, user_id: Uuid) -> AppResult<bool> {
         let result = sqlx::query(
-            "UPDATE qr_sessions SET status = 'scanned', user_id = ?
-             WHERE id = ? AND status = 'pending' AND expires_at > ?",
+            "UPDATE qr_sessions SET status = 'scanned', user_id = $1
+             WHERE id = $2 AND status = 'pending' AND expires_at > $3",
         )
         .bind(user_id)
         .bind(id)
@@ -85,8 +85,8 @@ impl QrRepository {
     pub async fn resolve(&self, id: &str, user_id: Uuid, to: QrStatus) -> AppResult<bool> {
         debug_assert!(matches!(to, QrStatus::Approved | QrStatus::Rejected));
         let result = sqlx::query(
-            "UPDATE qr_sessions SET status = ?
-             WHERE id = ? AND status = 'scanned' AND user_id = ? AND expires_at > ?",
+            "UPDATE qr_sessions SET status = $1
+             WHERE id = $2 AND status = 'scanned' AND user_id = $3 AND expires_at > $4",
         )
         .bind(to)
         .bind(id)
@@ -103,8 +103,8 @@ impl QrRepository {
         let status: Option<QrStatus> = sqlx::query_scalar(
             "UPDATE qr_sessions
              SET attempts = attempts + 1,
-                 status = CASE WHEN attempts + 1 >= ? THEN 'rejected' ELSE status END
-             WHERE id = ? AND status = 'scanned'
+                 status = CASE WHEN attempts + 1 >= $1 THEN 'rejected' ELSE status END
+             WHERE id = $2 AND status = 'scanned'
              RETURNING status",
         )
         .bind(MAX_CODE_ATTEMPTS)
@@ -118,7 +118,7 @@ impl QrRepository {
     pub async fn consume(&self, id: &str) -> AppResult<Option<Uuid>> {
         Ok(sqlx::query_scalar(
             "UPDATE qr_sessions SET status = 'consumed'
-             WHERE id = ? AND status = 'approved' AND expires_at > ?
+             WHERE id = $1 AND status = 'approved' AND expires_at > $2
              RETURNING user_id",
         )
         .bind(id)
