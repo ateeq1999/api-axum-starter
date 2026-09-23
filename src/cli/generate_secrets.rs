@@ -3,15 +3,21 @@ use std::path::Path;
 use super::USAGE;
 use crate::infra::secrets::{self, PrometheusSync};
 
-/// `cargo run -- generate-secrets [--force]`: fills in random values for `JWT_SECRET`,
+/// `cargo run -- gen --secrets [--force]`: fills in random values for `JWT_SECRET`,
 /// `METRICS_TOKEN` and `ADMIN_PASSWORD` in `.env`. Leaves anything already set untouched unless
 /// `--force` is given, so it is safe to re-run.
 pub fn run(flags: Vec<String>) -> anyhow::Result<()> {
-    let force = match flags.as_slice() {
-        [] => false,
-        [flag] if flag == "--force" => true,
-        _ => anyhow::bail!("unknown option `{}`\n\n{USAGE}", flags.join(" ")),
-    };
+    let (mut secrets_flag, mut force) = (false, false);
+    for flag in &flags {
+        match flag.as_str() {
+            "--secrets" => secrets_flag = true,
+            "--force" => force = true,
+            other => anyhow::bail!("unknown option `{other}`\n\n{USAGE}"),
+        }
+    }
+    if !secrets_flag {
+        anyhow::bail!("usage: api-starter-axum gen --secrets [--force]\n\n{USAGE}");
+    }
 
     let result = secrets::generate(
         Path::new(".env"),

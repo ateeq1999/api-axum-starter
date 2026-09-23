@@ -10,16 +10,16 @@ mod setup;
 use crate::infra;
 
 pub(crate) const USAGE: &str =
-    "usage: api-starter-axum [seed [--fresh [--yes]] | setup [--seed] | generate-secrets [--force]]
+    "usage: api-starter-axum [seed [--fresh [--yes]] | setup [--seed] | gen --secrets [--force]]
 
-  (no command)              run the API server
-  seed                      add the development seed data (seeds/seed.sql), then exit
-  seed --fresh              DELETE ALL DATA first (seeds/reset.sql), then seed; asks to confirm
-  seed --fresh --yes        same, without asking
-  setup                     create .env if missing, generate secrets, run migrations
-  setup --seed              same, then also load development seed data
-  generate-secrets          fill in JWT_SECRET, METRICS_TOKEN, ADMIN_PASSWORD in .env if unset
-  generate-secrets --force  also overwrite ones that are already set";
+  (no command)          run the API server
+  seed                  add the development seed data (seeds/seed.sql), then exit
+  seed --fresh          DELETE ALL DATA first (seeds/reset.sql), then seed; asks to confirm
+  seed --fresh --yes    same, without asking
+  setup                 create .env if missing, generate secrets, run migrations
+  setup --seed          same, then also load development seed data
+  gen --secrets         fill in JWT_SECRET, METRICS_TOKEN, ADMIN_PASSWORD in .env if unset
+  gen --secrets --force also overwrite ones that are already set";
 
 pub async fn run() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -33,7 +33,7 @@ pub async fn run() -> anyhow::Result<()> {
             seed::run(args.collect()).await
         }
         Some("setup") => setup::run(args.collect()).await,
-        Some("generate-secrets") => generate_secrets::run(args.collect()),
+        Some("gen") => generate_secrets::run(args.collect()),
         Some(other) => anyhow::bail!("unknown command `{other}`\n\n{USAGE}"),
     }
 }

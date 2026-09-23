@@ -38,8 +38,8 @@ No admin exists after the first migration. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD
 `cargo run -- setup` already does this once for you on a fresh checkout. Run it again on its own whenever you want to rotate a secret later:
 
 ```bash
-cargo run -- generate-secrets          # fills in JWT_SECRET and METRICS_TOKEN if unset
-cargo run -- generate-secrets --force  # also overwrites ones already set
+cargo run -- gen --secrets          # fills in JWT_SECRET and METRICS_TOKEN if unset
+cargo run -- gen --secrets --force  # also overwrites ones already set
 ```
 
 Fills in random values for `JWT_SECRET`, `METRICS_TOKEN` and (if `ADMIN_EMAIL` is already set) `ADMIN_PASSWORD` in `.env`, leaving anything already there untouched unless `--force` is given. Also updates `monitoring/prometheus.yml`'s scrape `credentials:` to match a newly generated `METRICS_TOKEN`, so local Prometheus scraping does not start failing with `401` right after rotating it.
