@@ -7,7 +7,8 @@ Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 ## Quick start
 
 ```bash
-cp .env.example .env        # then set JWT_SECRET (openssl rand -hex 32)
+cp .env.example .env
+cargo run -- generate-secrets   # fills in JWT_SECRET and METRICS_TOKEN
 cargo run
 ```
 
@@ -31,6 +32,15 @@ With `MAIL_ENABLED=false` (the default) no email is sent; the message is logged 
 ### First administrator
 
 No admin exists after the first migration. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` and one is created at startup, only if no active admin exists yet.
+
+### Generating secrets
+
+```bash
+cargo run -- generate-secrets          # fills in JWT_SECRET and METRICS_TOKEN if unset
+cargo run -- generate-secrets --force  # also overwrites ones already set
+```
+
+Fills in random values for `JWT_SECRET`, `METRICS_TOKEN` and (if `ADMIN_EMAIL` is already set) `ADMIN_PASSWORD` in `.env`, leaving anything already there untouched unless `--force` is given. Also updates `monitoring/prometheus.yml`'s scrape `credentials:` to match a newly generated `METRICS_TOKEN`, so local Prometheus scraping does not start failing with `401` right after rotating it.
 
 ### Seed data (development)
 

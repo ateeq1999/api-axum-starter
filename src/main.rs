@@ -1,26 +1,156 @@
 use std::{net::SocketAddr, time::Duration};
 
-use api_starter_axum::{app::build_router, config::Config, infra, state::AppState};
+use api_starter_axum::{
+    app::build_router, common::security::secret_token, config::Config, infra, state::AppState,
+};
 use tokio::{net::TcpListener, signal};
 
-const USAGE: &str = "usage: api-starter-axum [seed [--fresh [--yes]]]
+const USAGE: &str = "usage: api-starter-axum [seed [--fresh [--yes]] | generate-secrets [--force]]
 
-  (no command)          run the API server
-  seed                  add the development seed data (seeds/seed.sql), then exit
-  seed --fresh          DELETE ALL DATA first (seeds/reset.sql), then seed; asks to confirm
-  seed --fresh --yes    same, without asking";
+  (no command)              run the API server
+  seed                      add the development seed data (seeds/seed.sql), then exit
+  seed --fresh              DELETE ALL DATA first (seeds/reset.sql), then seed; asks to confirm
+  seed --fresh --yes        same, without asking
+  generate-secrets          fill in JWT_SECRET, METRICS_TOKEN, ADMIN_PASSWORD in .env if unset
+  generate-secrets --force  also overwrite ones that are already set";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    infra::telemetry::init();
 
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
-        None => serve().await,
-        Some("seed" | "--seed") => seed(args.collect()).await,
+        None => {
+            infra::telemetry::init();
+            serve().await
+        }
+        Some("seed" | "--seed") => {
+            infra::telemetry::init();
+            seed(args.collect()).await
+        }
+        Some("generate-secrets") => generate_secrets(args.collect()),
         Some(other) => anyhow::bail!("unknown command `{other}`\n\n{USAGE}"),
     }
+}
+
+/// `cargo run -- generate-secrets [--force]`: fills in random values for `JWT_SECRET`,
+/// `METRICS_TOKEN` and `ADMIN_PASSWORD` in `.env`. Leaves anything already set untouched unless
+/// `--force` is given, so it is safe to re-run.
+fn generate_secrets(flags: Vec<String>) -> anyhow::Result<()> {
+    let force = match flags.as_slice() {
+        [] => false,
+        [flag] if flag == "--force" => true,
+        _ => anyhow::bail!("unknown option `{}`\n\n{USAGE}", flags.join(" ")),
+    };
+
+    const PATH: &str = ".env";
+    let contents = std::fs::read_to_string(PATH)
+        .map_err(|_| anyhow::anyhow!("no {PATH} found; run `cp .env.example .env` first"))?;
+    let mut lines: Vec<String> = contents.lines().map(str::to_string).collect();
+
+    let mut changed = Vec::new();
+    if set_env_var(
+        &mut lines,
+        "JWT_SECRET",
+        &secret_token::generate().raw,
+        force,
+    ) {
+        changed.push("JWT_SECRET");
+    }
+    let metrics_token = secret_token::generate().raw;
+    if set_env_var(&mut lines, "METRICS_TOKEN", &metrics_token, force) {
+        changed.push("METRICS_TOKEN");
+        sync_prometheus_token(&metrics_token)?;
+    }
+    // ADMIN_EMAIL and ADMIN_PASSWORD must be set together (see Config::from_env), so a password
+    // is never generated for an email that is not there to pair with it.
+    if has_non_empty_value(&lines, "ADMIN_EMAIL") {
+        if set_env_var(
+            &mut lines,
+            "ADMIN_PASSWORD",
+            &secret_token::generate().raw,
+            force,
+        ) {
+            changed.push("ADMIN_PASSWORD");
+        }
+    } else {
+        println!(
+            "ADMIN_EMAIL is not set, so ADMIN_PASSWORD was left alone (they must be set together)."
+        );
+    }
+
+    if changed.is_empty() {
+        println!("Nothing to do: every secret already has a value (pass --force to regenerate).");
+    } else {
+        std::fs::write(PATH, lines.join("\n") + "\n")?;
+        println!("Generated new value(s) for: {}", changed.join(", "));
+    }
+    Ok(())
+}
+
+/// Sets `name=value` in `lines`, replacing an existing line for `name` (commented out or not)
+/// unless it already holds a non-empty value and `force` is false. Appends a new line if `name`
+/// is not present at all. Returns whether a line was changed.
+fn set_env_var(lines: &mut Vec<String>, name: &str, value: &str, force: bool) -> bool {
+    let prefix = format!("{name}=");
+    let commented_prefix = format!("# {name}=");
+    for line in lines.iter_mut() {
+        let trimmed = line.trim_start();
+        if let Some(existing) = trimmed.strip_prefix(&prefix) {
+            if !existing.is_empty() && !force {
+                return false;
+            }
+            *line = format!("{name}={value}");
+            return true;
+        }
+        if trimmed.starts_with(&commented_prefix) {
+            *line = format!("{name}={value}");
+            return true;
+        }
+    }
+    lines.push(format!("{name}={value}"));
+    true
+}
+
+/// Keeps `monitoring/prometheus.yml`'s scrape `credentials:` matching whatever `METRICS_TOKEN`
+/// was just generated, so a rotated token does not leave local Prometheus scraping stuck on a
+/// 401 (see the README's Monitoring section).
+fn sync_prometheus_token(token: &str) -> anyhow::Result<()> {
+    const PATH: &str = "monitoring/prometheus.yml";
+    let Ok(contents) = std::fs::read_to_string(PATH) else {
+        return Ok(()); // no local monitoring stack checked out; nothing to sync
+    };
+
+    let mut found = false;
+    let lines: Vec<String> = contents
+        .lines()
+        .map(|line| match line.find("credentials:") {
+            Some(indent_end) => {
+                found = true;
+                format!("{}credentials: \"{token}\"", &line[..indent_end])
+            }
+            None => line.to_string(),
+        })
+        .collect();
+
+    if found {
+        std::fs::write(PATH, lines.join("\n") + "\n")?;
+        println!("Updated the bearer token in {PATH} to match.");
+    } else {
+        println!(
+            "Note: {PATH} has no `credentials:` line to update; add one under `authorization:` if /metrics scraping needs it."
+        );
+    }
+    Ok(())
+}
+
+fn has_non_empty_value(lines: &[String], name: &str) -> bool {
+    let prefix = format!("{name}=");
+    lines.iter().any(|line| {
+        line.trim_start()
+            .strip_prefix(prefix.as_str())
+            .is_some_and(|v| !v.is_empty())
+    })
 }
 
 /// `cargo run -- seed [--fresh [--yes]]`: runs the migrations, loads the seed data and exits.
