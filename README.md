@@ -7,12 +7,12 @@ Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 ## Quick start
 
 ```bash
-cp .env.example .env
-cargo run -- generate-secrets   # fills in JWT_SECRET and METRICS_TOKEN
+createdb api_starter_db      # or: psql -c 'CREATE DATABASE api_starter_db'
+cargo run -- setup           # creates .env, fills in secrets, runs migrations
 cargo run
 ```
 
-The server listens on `127.0.0.1:3000` by default. Migrations run automatically at startup against the Postgres database named in `DATABASE_URL` (create the database first; the app does not create it for you).
+`setup` copies `.env.example` to `.env` if missing, generates `JWT_SECRET`/`METRICS_TOKEN`, and runs migrations against the Postgres database named in `DATABASE_URL` (the app does not create the database itself — do that first). Add `--seed` (`cargo run -- setup --seed`) to also load the development [seed data](#seed-data-development) in the same step. The server then listens on `127.0.0.1:3000` by default.
 
 ```bash
 curl -X POST localhost:3000/api/v1/auth/register \
@@ -34,6 +34,8 @@ With `MAIL_ENABLED=false` (the default) no email is sent; the message is logged 
 No admin exists after the first migration. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` and one is created at startup, only if no active admin exists yet.
 
 ### Generating secrets
+
+`cargo run -- setup` already does this once for you on a fresh checkout. Run it again on its own whenever you want to rotate a secret later:
 
 ```bash
 cargo run -- generate-secrets          # fills in JWT_SECRET and METRICS_TOKEN if unset
@@ -201,9 +203,11 @@ Each feature is a folder under `modules/` and owns its controller, service, repo
 
 ```
 src/
-├── main.rs, lib.rs, app.rs, state.rs   boot, router assembly, AppState (holds the services)
+├── main.rs                             ~5 lines: load .env, call cli::run()
+├── lib.rs, app.rs, state.rs            module tree, router assembly, AppState (holds the services)
+├── cli/                                one file per subcommand: serve, seed, setup, generate_secrets
 ├── config/                             environment-driven Config
-├── infra/                              database pool + migrations, tracing setup, jobs/ (background job queue)
+├── infra/                              database pool + migrations, tracing setup, jobs/ (background job queue), secrets.rs (.env generation)
 ├── common/                             feature-agnostic building blocks
 │   ├── error.rs                        AppError -> HTTP response
 │   ├── dto/                            Pagination, MessageResponse
