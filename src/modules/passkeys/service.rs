@@ -205,7 +205,13 @@ impl PasskeysService {
         if self.require_verified_email && !user.is_email_verified() {
             return Err(PasskeyError::EmailNotVerified.into());
         }
-        let access_token = jwt::issue(user.id, user.role, &self.jwt.secret, self.jwt.ttl_secs)?;
+        let access_token = jwt::issue(
+            user.id,
+            user.role,
+            user.token_version,
+            &self.jwt.secret,
+            self.jwt.ttl_secs,
+        )?;
         metrics::counter!("passkey_ceremony_total", "kind" => "authentication", "outcome" => "success")
             .increment(1);
         Ok(TokenResponse {

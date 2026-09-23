@@ -123,7 +123,13 @@ impl QrLoginService {
             return Err(QrError::EmailNotVerified.into());
         }
 
-        let access_token = jwt::issue(user.id, user.role, &self.jwt.secret, self.jwt.ttl_secs)?;
+        let access_token = jwt::issue(
+            user.id,
+            user.role,
+            user.token_version,
+            &self.jwt.secret,
+            self.jwt.ttl_secs,
+        )?;
         metrics::counter!("qr_login_total", "outcome" => "success").increment(1);
         Ok(PollResponse {
             status: "approved",

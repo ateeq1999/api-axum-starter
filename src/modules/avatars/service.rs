@@ -80,6 +80,12 @@ impl AvatarService {
         self.storage.read(file).await
     }
 
+    /// Deletes an avatar file directly by name, bypassing the DB (the row is already gone or
+    /// being anonymized). Used when a user account is deleted.
+    pub async fn remove_file(&self, key: &str) {
+        self.storage.remove(key).await;
+    }
+
     async fn current(&self, actor: &AuthUser) -> AppResult<UserResponse> {
         Ok(self
             .users

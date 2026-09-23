@@ -78,7 +78,13 @@ impl SessionService {
             return Err(AuthError::EmailNotVerified.into());
         }
 
-        let access_token = jwt::issue(user.id, user.role, &self.jwt.secret, self.jwt.ttl_secs)?;
+        let access_token = jwt::issue(
+            user.id,
+            user.role,
+            user.token_version,
+            &self.jwt.secret,
+            self.jwt.ttl_secs,
+        )?;
         outcome(true);
         Ok(TokenResponse {
             access_token,

@@ -19,6 +19,7 @@ use crate::{
         extractors::{ValidatedJson, ValidatedQuery},
         security::{AdminUser, AuthUser},
     },
+    modules::avatars::AvatarService,
     state::AppState,
 };
 
@@ -80,8 +81,11 @@ async fn update(
 async fn remove(
     AdminUser(actor): AdminUser,
     State(users): State<Arc<UsersService>>,
+    State(avatars): State<Arc<AvatarService>>,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    users.delete(&actor, id).await?;
+    if let Some(avatar_key) = users.delete(&actor, id).await? {
+        avatars.remove_file(&avatar_key).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }

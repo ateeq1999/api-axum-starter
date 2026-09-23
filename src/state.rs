@@ -6,7 +6,8 @@ use sqlx::PgPool;
 use crate::{
     common::{
         middleware::rate_limit::RateLimiter,
-        security::{ApiKeyAuth, JwtSettings, password},
+        net::TrustProxy,
+        security::{ApiKeyAuth, JwtSettings, SessionAuth, password},
     },
     config::Config,
     modules::{
@@ -36,15 +37,20 @@ pub struct AppState {
     pub qr_login: Arc<QrLoginService>,
     /// Lets the auth extractors (in `common`) resolve API keys without depending on `api_keys`.
     pub api_key_auth: ApiKeyAuth,
+    /// Lets the auth extractors (in `common`) verify sessions live against the database (role,
+    /// active/deleted, token_version) without depending on `users`.
+    pub session_auth: SessionAuth,
     pub jwt: Arc<JwtSettings>,
     pub rate_limiter: RateLimiter,
+    pub trust_proxy: TrustProxy,
     pub config: Arc<Config>,
     pub db: PgPool,
 }
 
 impl AppState {
     pub async fn new(db: PgPool, config: Config) -> anyhow::Result<Self> {
-        let mail = MailService::new(&config.smtp, &config.frontend)?;
+        let mail =
+            MailService::new(&config.smtp, &config.frontend)?.with_durable_outbox(db.clone());
         Self::with_mail(db, config, mail).await
     }
 
@@ -59,6 +65,7 @@ impl AppState {
             "strict",
             config.account.rate_limit_per_minute,
             Duration::from_secs(60),
+            config.account.trust_proxy_headers,
         );
         let require_verified = config.account.require_verified_email;
 
@@ -93,18 +100,22 @@ impl AppState {
             require_verified,
         );
 
+        let session_auth = SessionAuth(Arc::new(users.clone()));
+
         Ok(Self {
             auth: Arc::new(auth),
             users: Arc::new(users),
             mail: Arc::new(mail),
             avatars: Arc::new(avatars),
             api_key_auth: ApiKeyAuth(api_keys.clone()),
+            session_auth,
             api_keys,
             oauth: Arc::new(oauth),
             passkeys: Arc::new(passkeys),
             qr_login: Arc::new(qr_login),
             jwt: Arc::new(config.jwt.clone()),
             rate_limiter,
+            trust_proxy: TrustProxy(config.account.trust_proxy_headers),
             config: Arc::new(config),
             db,
         })

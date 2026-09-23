@@ -5,7 +5,7 @@ scrape_configs:
   - job_name: api-starter-axum
     authorization:
       type: Bearer
-      credentials: "VGAnpjESxBnoPjh/Gx6rIZwQJgoacl0unVrikxqGQzc="
+      credentials: "hLzbO1IZ0i86X9T3zBt7tDWzLdl0sH4kdiCOSt3joVM"
     static_configs:
       # Requires METRICS_BIND_ADDR=0.0.0.0:9091 in the API's environment for local Docker use.
       - targets: ["host.docker.internal:9091"]

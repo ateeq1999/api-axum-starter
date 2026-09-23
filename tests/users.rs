@@ -210,28 +210,36 @@ async fn the_last_active_admin_cannot_be_removed() {
     let (a_id, a_token) = app.admin("a@example.com").await;
     let (b_id, b_token) = app.admin("b@example.com").await;
 
-    // A deactivates B; B still holds a valid token but A is now the only active admin.
-    let (status, _) = app
-        .patch(
-            &format!("/api/v1/users/{b_id}"),
-            Some(&a_token),
-            json!({ "is_active": false }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK);
+    // Sequentially, a stale actor can no longer even reach this rule: deactivating (or
+    // demoting) an admin now invalidates their session immediately (see `SessionVerifier`), so
+    // a deactivated admin's next request is rejected as unauthenticated before any business
+    // rule runs. The "at least one active admin remains" guard only matters when two *currently
+    // valid* admins race each other, which is what this test now exercises directly.
+    let b_path = format!("/api/v1/users/{b_id}");
+    let a_path = format!("/api/v1/users/{a_id}");
+    let (deactivate_b, deactivate_a) = tokio::join!(
+        app.patch(&b_path, Some(&a_token), json!({ "is_active": false })),
+        app.patch(&a_path, Some(&b_token), json!({ "is_active": false })),
+    );
+    let succeeded = [deactivate_b.0, deactivate_a.0]
+        .into_iter()
+        .filter(|status| *status == StatusCode::OK)
+        .count();
+    assert_eq!(
+        succeeded, 1,
+        "exactly one of the two racing deactivations should win: {deactivate_b:?} / {deactivate_a:?}"
+    );
 
-    let (status, body) = app
-        .patch(
-            &format!("/api/v1/users/{a_id}"),
-            Some(&b_token),
-            json!({ "role": "user" }),
-        )
-        .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    let (status, _) = app
-        .delete(&format!("/api/v1/users/{a_id}"), Some(&b_token))
-        .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let active_admins: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND deleted_at IS NULL",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        active_admins, 1,
+        "the guard must never let both succeed and leave zero active admins"
+    );
 }
 
 #[tokio::test]
@@ -270,10 +278,10 @@ async fn soft_delete_hides_the_user_and_frees_the_email() {
         app.login("gone@example.com", PASSWORD).await.0,
         StatusCode::UNAUTHORIZED
     );
-    // the deleted user's old token no longer resolves to anyone
+    // the deleted user's old token is rejected outright, before any handler runs
     assert_eq!(
         app.get("/api/v1/users/me", Some(&user)).await.0,
-        StatusCode::NOT_FOUND
+        StatusCode::UNAUTHORIZED
     );
 
     let (_, page) = app.get("/api/v1/users", Some(&admin)).await;

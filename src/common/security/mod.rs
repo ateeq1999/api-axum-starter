@@ -6,6 +6,7 @@ pub mod jwt;
 pub mod password;
 pub mod role;
 pub mod secret_token;
+pub mod session_auth;
 pub mod session_user;
 
 pub use admin_user::AdminUser;
@@ -14,4 +15,5 @@ pub use auth_user::AuthUser;
 pub use error::SecurityError;
 pub use jwt::JwtSettings;
 pub use role::Role;
+pub use session_auth::{SessionAuth, SessionVerifier};
 pub use session_user::SessionUser;

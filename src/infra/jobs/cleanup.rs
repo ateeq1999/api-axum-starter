@@ -55,6 +55,17 @@ pub async fn run(db: &PgPool) -> Result<(), sqlx::Error> {
     }
 
     prune_job_history(db).await?;
+    prune_dead_mail(db).await?;
+    Ok(())
+}
+
+/// Deletes `outbound_mail` rows given up on over a month ago (see `modules::mail::repository`),
+/// kept until then so a real delivery failure stays inspectable.
+async fn prune_dead_mail(db: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM outbound_mail WHERE status = 'dead' AND updated_at < $1")
+        .bind(Utc::now() - DEAD_JOB_RETENTION)
+        .execute(db)
+        .await?;
     Ok(())
 }
 

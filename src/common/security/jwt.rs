@@ -27,15 +27,31 @@ pub struct Claims {
     pub sub: Uuid,
     #[serde(default)]
     pub role: Role,
+    /// The user's `token_version` at issue time. Checked live against the database on every
+    /// request (see `SessionVerifier`), so a password change invalidates tokens issued before it
+    /// immediately, instead of leaving them valid until they expire.
+    #[serde(default = "default_token_version")]
+    pub tv: i32,
     pub iat: i64,
     pub exp: i64,
 }
 
-pub fn issue(user_id: Uuid, role: Role, secret: &str, ttl_secs: i64) -> AppResult<String> {
+fn default_token_version() -> i32 {
+    1
+}
+
+pub fn issue(
+    user_id: Uuid,
+    role: Role,
+    token_version: i32,
+    secret: &str,
+    ttl_secs: i64,
+) -> AppResult<String> {
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
         sub: user_id,
         role,
+        tv: token_version,
         iat: now,
         exp: now + ttl_secs,
     };
@@ -64,20 +80,21 @@ mod tests {
     const SECRET: &str = "0123456789abcdef0123456789abcdef";
 
     #[test]
-    fn roundtrip_keeps_subject_and_role() {
+    fn roundtrip_keeps_subject_role_and_token_version() {
         let id = Uuid::new_v4();
-        let token = issue(id, Role::Admin, SECRET, 60).unwrap();
+        let token = issue(id, Role::Admin, 3, SECRET, 60).unwrap();
         let claims = verify(&token, SECRET).unwrap();
         assert_eq!(claims.sub, id);
         assert_eq!(claims.role, Role::Admin);
+        assert_eq!(claims.tv, 3);
     }
 
     #[test]
     fn rejects_wrong_secret_and_expired() {
         let id = Uuid::new_v4();
-        let token = issue(id, Role::User, SECRET, 60).unwrap();
+        let token = issue(id, Role::User, 1, SECRET, 60).unwrap();
         assert!(verify(&token, "another-secret-another-secret-123").is_err());
-        let expired = issue(id, Role::User, SECRET, -120).unwrap();
+        let expired = issue(id, Role::User, 1, SECRET, -120).unwrap();
         assert!(verify(&expired, SECRET).is_err());
     }
 }

@@ -316,7 +316,13 @@ impl OAuthService {
             .filter(|u| u.is_active)
             .ok_or(OAuthError::AccountDisabled)?;
 
-        let access_token = jwt::issue(user.id, user.role, &self.jwt.secret, self.jwt.ttl_secs)?;
+        let access_token = jwt::issue(
+            user.id,
+            user.role,
+            user.token_version,
+            &self.jwt.secret,
+            self.jwt.ttl_secs,
+        )?;
         Ok(TokenResponse {
             access_token,
             token_type: "Bearer",

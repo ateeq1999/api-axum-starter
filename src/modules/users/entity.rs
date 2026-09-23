@@ -18,6 +18,9 @@ pub struct User {
     pub deleted_at: Option<DateTime<Utc>>,
     pub avatar_key: Option<String>,
     pub password_set: bool,
+    /// Bumped on every password change; embedded in JWTs at issue time so an old token stops
+    /// working immediately once the password changes, instead of staying valid until it expires.
+    pub token_version: i32,
 }
 
 impl User {

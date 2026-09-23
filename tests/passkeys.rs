@@ -303,7 +303,14 @@ async fn the_last_sign_in_method_cannot_be_removed() {
         .create_passwordless("nopass@example.com", None, true)
         .await
         .unwrap();
-    let token = jwt::issue(user.id, Role::User, &app.state.jwt.secret, 3600).unwrap();
+    let token = jwt::issue(
+        user.id,
+        Role::User,
+        user.token_version,
+        &app.state.jwt.secret,
+        3600,
+    )
+    .unwrap();
 
     let mut wa = authenticator();
     let (status, created, _) = register(&app, &token, &mut wa, "Only way in", ORIGIN).await;

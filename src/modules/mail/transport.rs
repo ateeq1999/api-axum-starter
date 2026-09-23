@@ -5,12 +5,14 @@ use lettre::{
     message::{Mailbox, MultiPart},
     transport::smtp::authentication::Credentials,
 };
+use serde::{Deserialize, Serialize};
 
 use super::error::MailError;
 use crate::config::{SmtpConfig, SmtpTls};
 
-/// A fully rendered email, before it is encoded for the wire.
-#[derive(Debug, Clone)]
+/// A fully rendered email, before it is encoded for the wire. `Serialize`/`Deserialize` so it can
+/// be persisted in `outbound_mail` (see `modules::mail::repository`) until delivery succeeds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutgoingMail {
     pub to: String,
     pub subject: String,

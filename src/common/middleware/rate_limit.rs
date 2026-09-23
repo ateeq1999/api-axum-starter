@@ -11,30 +11,31 @@ use axum::{
     response::Response,
 };
 
-use crate::common::error::AppError;
+use crate::common::{error::AppError, net};
 
 const MAX_TRACKED_CLIENTS: usize = 10_000;
 
 /// Fixed-window, in-memory, per-client-IP limiter for abusable public endpoints.
 ///
-/// The key is the TCP peer address. Behind a reverse proxy every request shares the proxy's
-/// address, so terminate rate limiting at the proxy or extend this to trust a forwarded header.
-/// State is per process, so limits are not shared across multiple API replicas.
+/// The key is the client IP (see [`net::client_ip`] for how that is resolved). State is per
+/// process, so limits are not shared across multiple API replicas.
 #[derive(Clone)]
 pub struct RateLimiter {
     /// Distinguishes limiters in the `rate_limit_rejections_total` metric label.
     name: &'static str,
     max_requests: u32,
     window: Duration,
+    trust_proxy: bool,
     hits: Arc<Mutex<HashMap<IpAddr, (Instant, u32)>>>,
 }
 
 impl RateLimiter {
-    pub fn new(name: &'static str, max_requests: u32, window: Duration) -> Self {
+    pub fn new(name: &'static str, max_requests: u32, window: Duration, trust_proxy: bool) -> Self {
         Self {
             name,
             max_requests,
             window,
+            trust_proxy,
             hits: Arc::default(),
         }
     }
@@ -64,11 +65,12 @@ pub async fn enforce(
     req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let client = req
+    let peer = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|info| info.0.ip())
-        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        .map(|info| info.0)
+        .unwrap_or(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+    let client = net::client_ip(req.headers(), peer, limiter.trust_proxy);
 
     if limiter.allow(client, Instant::now()) {
         Ok(next.run(req).await)
@@ -84,7 +86,7 @@ mod tests {
 
     #[test]
     fn blocks_after_limit_and_resets_after_window() {
-        let limiter = RateLimiter::new("test", 2, Duration::from_secs(60));
+        let limiter = RateLimiter::new("test", 2, Duration::from_secs(60), false);
         let ip: IpAddr = "10.0.0.1".parse().unwrap();
         let t0 = Instant::now();
         assert!(limiter.allow(ip, t0));

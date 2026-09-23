@@ -92,6 +92,7 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 | `EMAIL_CHANGE_TTL_MINUTES` | `60` | |
 | `REQUIRE_VERIFIED_EMAIL` | `false` | Block login until the email is verified |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Per client IP, for login, register and the reset/verify endpoints |
+| `TRUST_PROXY_HEADERS` | `false` | Key the client IP off `X-Forwarded-For` instead of the TCP peer. Only set behind exactly one trusted reverse proxy |
 | `MAX_CONCURRENT_HASHES` | `8` | Max simultaneous argon2 operations (login, register, reset, change password). Each allocates ~19 MiB, so peak memory is about this number x 19 MiB |
 | `UPLOAD_DIR` | `./uploads` | Where profile photos are stored |
 | `PUBLIC_API_URL` | `http://localhost:<BIND_ADDR port>` | Public base URL of this API (OAuth redirect URIs are built from it) |
@@ -270,6 +271,8 @@ Links point at your frontend: `{FRONTEND_URL}/reset-password?token=...`, `/verif
 
 `MailService` renders each email as text plus HTML and sends it in a background task with up to 3 attempts (1 s and 4 s backoff) for transient SMTP errors. A mail failure is logged (without the link) and never fails a request. Pending mail is given 5 seconds to drain on shutdown.
 
+Every email is also persisted to `outbound_mail` before the send is attempted (`MailService::with_durable_outbox`, wired up for the real service only — never for the in-memory test transport) and removed once it succeeds. A row still `pending` at the next startup means the process crashed between rendering and sending; it is resent automatically in the background as soon as the process starts (concurrently with, not blocking, the server accepting requests). A permanently failed send is kept as `dead` for a month (pruned by the same cleanup job as the job queue) rather than deleted, so a real delivery failure stays inspectable.
+
 ## Background jobs
 
 `infra/jobs/` is a small durable job queue backed by Postgres, claimed with `FOR UPDATE SKIP LOCKED` — the same mechanism the `pgmq` extension uses internally, so it needs no extension and works on any Postgres instance. It runs inside the same process as the web server (no separate worker to deploy) and is drained, like mail, for 5 seconds on shutdown.
@@ -320,13 +323,19 @@ cargo clippy --all-targets
 
 ## Known limits
 
-- Access tokens are stateless. Demoting or deactivating a user, or changing a password, does not revoke tokens already issued; they expire after `JWT_TTL_SECS`.
-- The rate limiter is in-process and keyed on the TCP peer address. Behind a reverse proxy every request shares the proxy's address, so limit at the proxy; with several replicas the limits are per replica.
-- Mail delivery is best-effort. A crash between creating a link and sending the email loses that email; the user can request another.
-- The "last admin" check is not serialized against concurrent requests.
-- Soft delete rewrites the user's email to `deleted+<id>@deleted.invalid` so the address can be registered again.
-- Password hashing is capped at `MAX_CONCURRENT_HASHES` at a time (default 8), so a burst of logins queues instead of allocating 19 MiB each. Under a burst, requests wait for a free slot; the 10 s request timeout still applies.
-- Profile photos live on the local disk of the API host (`UPLOAD_DIR`): use a persistent volume, and note that several API replicas would each need shared storage. A deleted user's photo file is not removed.
+Fixed:
+
+- ~~Access tokens are stateless~~ — every JWT carries the user's `token_version`, checked live against the database on every request (`common::security::session_auth`). A password change bumps it, and role/active/deleted status is always read fresh from the database rather than trusted from the token — so a password change, demotion, deactivation or deletion takes effect on the very next request, not just once the token expires. This trades the original zero-DB-lookup JWT check for one lookup per authenticated request (the same cost API keys already paid).
+- ~~The rate limiter is keyed on the TCP peer address~~ — set `TRUST_PROXY_HEADERS=true` behind exactly one trusted reverse proxy to key on the right-most `X-Forwarded-For` entry instead (that proxy's own, unspoofable addition to the header); also fixes QR login's "requested from" display. Still per-replica: several API replicas do not share rate-limit state (would need Redis or similar, deliberately not added — see below).
+- ~~Mail delivery is best-effort~~ — every email is persisted (`outbound_mail`) before the send is attempted and removed once it succeeds; a row still `pending` at the next startup (the process crashed between the two) is resent automatically (`MailService::with_durable_outbox`), verified in `tests/mail_smtp.rs`.
+- ~~The "last admin" check is not serialized against concurrent requests~~ — the count check and the write now share one transaction guarded by a Postgres advisory lock (`modules::users::repository`), so two concurrent demotions/deletions can never both pass and leave zero admins. Verified under real concurrency in `tests/users.rs`.
+- ~~A deleted user's photo file is not removed~~ — `UsersService::delete` returns the avatar key so the controller removes the file.
+
+Still open (deliberate scope boundaries for a starter, not oversights):
+
+- Soft delete rewrites the user's email to `deleted+<id>@deleted.invalid` so the address can be registered again — by design, not a limit.
+- Password hashing is capped at `MAX_CONCURRENT_HASHES` at a time (default 8), so a burst of logins queues instead of allocating 19 MiB each. Under a burst, requests wait for a free slot; the 10 s request timeout still applies. Also by design (see the benchmark this was based on).
+- The rate limiter and profile photo storage (`UPLOAD_DIR`, local disk) are both per-replica/single-host. Sharing either across several API replicas needs an external dependency (Redis; an S3-compatible store) this starter deliberately does not bundle by default — swap `AvatarStorage` for an S3-backed implementation of the same small trait if you need that, rather than adopting one you may not.
 - Passkeys are usernameless (discoverable) only. Hardware keys that create non-discoverable credentials cannot sign in, and the passkey flow is verified with a software authenticator in tests, not with every browser and device.
-- QR login shows the requester's TCP peer address and browser string to the approving device; behind a reverse proxy the address is the proxy's. The 4-digit code and that display lower, but do not remove, the risk of a user approving a login they did not start.
-- Passkeys need OpenSSL at build and run time (see steps.md).
+- QR login's residual risk (a user approving a login they did not start) is inherent to the UX pattern itself (the same risk WhatsApp Web has); the verification code and requester display reduce, not remove, it.
+- Passkeys need OpenSSL at build and run time (see steps.md) — a transitive dependency of `webauthn-rs`.

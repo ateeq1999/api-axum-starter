@@ -93,6 +93,11 @@ pub struct AccountConfig {
     pub rate_limit_per_minute: u32,
     /// Cap on simultaneous argon2 operations (each allocates about 19 MiB).
     pub max_concurrent_hashes: usize,
+    /// Trust `X-Forwarded-For` (its right-most entry) for the client IP used by rate limiting
+    /// and QR-login's "requested from" display, instead of the TCP peer address. Only turn this
+    /// on when this app is deployed behind exactly one trusted reverse proxy that sets/appends
+    /// that header itself — otherwise a client can spoof its own IP.
+    pub trust_proxy_headers: bool,
 }
 
 #[derive(Clone)]
@@ -211,6 +216,7 @@ impl Config {
                 require_verified_email: optional("REQUIRE_VERIFIED_EMAIL", false)?,
                 rate_limit_per_minute: optional("RATE_LIMIT_PER_MINUTE", 20)?,
                 max_concurrent_hashes,
+                trust_proxy_headers: optional("TRUST_PROXY_HEADERS", false)?,
             },
             bootstrap_admin,
             storage: StorageConfig::from_env()?,

@@ -1,10 +1,12 @@
 //! Drives the real lettre SMTP transport against a tiny in-process SMTP server.
 
+mod common;
+
 use std::time::Duration;
 
 use api_starter_axum::{
     config::{FrontendConfig, SmtpConfig, SmtpTls},
-    modules::mail::MailService,
+    modules::mail::{MailService, OutgoingMail, repository::OutboxRepository},
 };
 use chrono::Duration as Ttl;
 use tokio::{
@@ -115,4 +117,60 @@ async fn unreachable_server_does_not_panic_or_block_the_caller() {
     );
     // Don't wait for the retries; just make sure shutdown honors its timeout.
     mail.shutdown(Duration::from_millis(200)).await;
+}
+
+/// Simulates a crash between rendering an email and sending it: the row is inserted directly
+/// (bypassing `dispatch`, exactly as if the process died right after `insert`), and a fresh
+/// `MailService` — standing in for the next startup — must resend it without being asked to.
+#[tokio::test]
+async fn a_crash_before_delivery_is_recovered_on_next_startup() {
+    let pool = common::fresh_pool().await;
+    let outbox = OutboxRepository::new(pool.clone());
+    outbox
+        .insert(&OutgoingMail {
+            to: "user@example.com".into(),
+            subject: "Reset your password".into(),
+            text: "reset link".into(),
+            html: "<p>reset link</p>".into(),
+        })
+        .await
+        .unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(fake_smtp_server(listener));
+
+    let mail = MailService::new(
+        &SmtpConfig {
+            enabled: true,
+            host: "127.0.0.1".into(),
+            port,
+            tls: SmtpTls::None,
+            username: None,
+            password: None,
+            from: "App <no-reply@example.com>".into(),
+        },
+        &FrontendConfig {
+            url: "https://app.test".into(),
+        },
+    )
+    .unwrap()
+    .with_durable_outbox(pool.clone());
+
+    let data = tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .expect("server finished")
+        .unwrap();
+    assert!(data.contains("Subject: Reset your password"), "{data}");
+
+    mail.shutdown(Duration::from_secs(5)).await;
+
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM outbound_mail")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        remaining, 0,
+        "the recovered email should be removed once delivered"
+    );
 }

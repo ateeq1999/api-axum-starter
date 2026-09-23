@@ -22,6 +22,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
         "qr_poll",
         state.config.qr_login.poll_rate_limit_per_minute,
         Duration::from_secs(60),
+        state.config.account.trust_proxy_headers,
     );
 
     Router::new()

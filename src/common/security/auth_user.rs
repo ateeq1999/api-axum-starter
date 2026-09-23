@@ -12,6 +12,7 @@ use super::{
     jwt,
     jwt::JwtSettings,
     role::Role,
+    session_auth::SessionAuth,
 };
 use crate::common::error::AppError;
 
@@ -54,6 +55,7 @@ where
     S: Send + Sync,
     Arc<JwtSettings>: FromRef<S>,
     ApiKeyAuth: FromRef<S>,
+    SessionAuth: FromRef<S>,
 {
     type Rejection = AppError;
 
@@ -72,6 +74,12 @@ where
 
         let settings = <Arc<JwtSettings>>::from_ref(state);
         let claims = jwt::verify(presented, &settings.secret)?;
-        Ok(AuthUser::session(claims.sub, claims.role))
+        // Checked live against the database (role, active/deleted, token_version) rather than
+        // trusted from the token, so a password change, deactivation or role change takes effect
+        // on the very next request instead of only once the token expires.
+        SessionAuth::from_ref(state)
+            .0
+            .verify(claims.sub, claims.tv)
+            .await
     }
 }

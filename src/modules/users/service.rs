@@ -10,7 +10,7 @@ use super::{
 use crate::common::{
     dto::PaginatedResponse,
     error::AppResult,
-    security::{AuthUser, Role, password},
+    security::{AuthUser, Role, SecurityError, SessionVerifier, api_key::BoxFuture, password},
 };
 
 /// Emails are compared case-insensitively; store them trimmed and lowercased.
@@ -78,13 +78,10 @@ impl UsersService {
     ) -> AppResult<UserResponse> {
         policy::check_admin_update(actor, id, &dto)?;
 
-        let target = self.require(id).await?;
-        let loses_admin = target.role.is_admin()
-            && target.is_active
-            && (dto.role == Some(Role::User) || dto.is_active == Some(false));
-        if loses_admin {
-            self.ensure_another_admin().await?;
-        }
+        // The authoritative "would this leave zero active admins?" check happens atomically
+        // inside `repo.update`, in the same transaction as the write; this only decides whether
+        // that check is worth paying for (skipped for e.g. a display-name-only change).
+        let guard_last_admin = dto.role == Some(Role::User) || dto.is_active == Some(false);
 
         let updated = self
             .repo
@@ -95,6 +92,7 @@ impl UsersService {
                     role: dto.role,
                     is_active: dto.is_active,
                 },
+                guard_last_admin,
             )
             .await?
             .ok_or(UsersError::NotFound)?;
@@ -114,25 +112,29 @@ impl UsersService {
                     display_name: dto.display_name.as_deref(),
                     ..UserPatch::default()
                 },
+                false,
             )
             .await?
             .ok_or(UsersError::NotFound)?;
         Ok(updated.into())
     }
 
-    pub async fn delete(&self, actor: &AuthUser, id: Uuid) -> AppResult<()> {
+    /// Returns the deleted user's avatar file name, if any, so the caller can remove it —
+    /// `UsersService` deliberately knows nothing about avatar storage.
+    pub async fn delete(&self, actor: &AuthUser, id: Uuid) -> AppResult<Option<String>> {
         policy::check_delete(actor, id)?;
 
         let target = self.require(id).await?;
-        if target.role.is_admin() && target.is_active {
-            self.ensure_another_admin().await?;
-        }
-
         let released_email = format!("deleted+{id}@deleted.invalid");
-        if !self.repo.soft_delete(id, &released_email).await? {
+        let guard_last_admin = target.role.is_admin() && target.is_active;
+        if !self
+            .repo
+            .soft_delete(id, &released_email, guard_last_admin)
+            .await?
+        {
             return Err(UsersError::NotFound.into());
         }
-        Ok(())
+        Ok(target.avatar_key)
     }
 
     // ---- building blocks used by other modules (auth) ---------------------------------
@@ -248,11 +250,25 @@ impl UsersService {
             .await?
             .ok_or(UsersError::NotFound)?)
     }
+}
 
-    async fn ensure_another_admin(&self) -> AppResult<()> {
-        if self.repo.count_active_admins().await? <= 1 {
-            return Err(UsersError::CannotRemoveLastAdmin.into());
-        }
-        Ok(())
+impl SessionVerifier for UsersService {
+    fn verify<'a>(
+        &'a self,
+        user_id: Uuid,
+        token_version: i32,
+    ) -> BoxFuture<'a, AppResult<AuthUser>> {
+        Box::pin(async move {
+            // `find_by_id` already filters out soft-deleted rows.
+            let user = self
+                .find_by_id(user_id)
+                .await?
+                .filter(|u| u.is_active)
+                .ok_or(SecurityError::InvalidToken)?;
+            if user.token_version != token_version {
+                return Err(SecurityError::InvalidToken.into());
+            }
+            Ok(AuthUser::session(user.id, user.role))
+        })
     }
 }

@@ -5,7 +5,10 @@ use axum::{
     http::request::Parts,
 };
 
-use super::{api_key::ApiKeyAuth, auth_user::AuthUser, error::SecurityError, jwt::JwtSettings};
+use super::{
+    api_key::ApiKeyAuth, auth_user::AuthUser, error::SecurityError, jwt::JwtSettings,
+    session_auth::SessionAuth,
+};
 use crate::common::error::AppError;
 
 /// Like [`AuthUser`], but rejects callers that are not administrators (403).
@@ -17,6 +20,7 @@ where
     S: Send + Sync,
     Arc<JwtSettings>: FromRef<S>,
     ApiKeyAuth: FromRef<S>,
+    SessionAuth: FromRef<S>,
 {
     type Rejection = AppError;
 

@@ -10,6 +10,7 @@ use super::{
     auth_user::AuthUser,
     error::SecurityError,
     jwt::JwtSettings,
+    session_auth::SessionAuth,
 };
 use crate::common::error::AppError;
 
@@ -24,6 +25,7 @@ where
     S: Send + Sync,
     Arc<JwtSettings>: FromRef<S>,
     ApiKeyAuth: FromRef<S>,
+    SessionAuth: FromRef<S>,
 {
     type Rejection = AppError;
 

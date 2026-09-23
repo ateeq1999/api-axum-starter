@@ -14,7 +14,7 @@ use crate::common::{
 
 macro_rules! columns {
     () => {
-        "id, email, password_hash, display_name, role, is_active, email_verified_at, created_at, updated_at, deleted_at, avatar_key, password_set"
+        "id, email, password_hash, display_name, role, is_active, email_verified_at, created_at, updated_at, deleted_at, avatar_key, password_set, token_version"
     };
 }
 
@@ -42,6 +42,14 @@ pub struct UserFilter<'a> {
     pub limit: i64,
     pub offset: i64,
 }
+
+/// Arbitrary but fixed key for the Postgres advisory lock guarding the "at least one active
+/// admin remains" invariant (the only advisory lock this app takes, so any value works). A plain
+/// row lock cannot guard this: two concurrent requests demoting *different* admins would each
+/// lock the *other* admin's row, so neither blocks the other, and both count checks could still
+/// pass right before both writes land, leaving zero admins. The advisory lock is not tied to any
+/// row, so every such transaction serializes against every other one, closing that race.
+const ADMIN_GUARD_KEY: i64 = 8_412_017;
 
 #[derive(Clone)]
 pub struct UsersRepository {
@@ -131,7 +139,34 @@ impl UsersRepository {
         Ok((users, total.max(0) as u64))
     }
 
-    pub async fn update(&self, id: Uuid, patch: UserPatch<'_>) -> AppResult<Option<User>> {
+    /// `guard_last_admin`: when true, the update is rejected (inside the same transaction as the
+    /// count check, so no concurrent request can race it) if it would leave zero active admins.
+    /// Callers pass `true` only when the patch could plausibly remove an admin (demote or
+    /// deactivate); anything else (e.g. a display-name-only change) skips the lock entirely.
+    pub async fn update(
+        &self,
+        id: Uuid,
+        patch: UserPatch<'_>,
+        guard_last_admin: bool,
+    ) -> AppResult<Option<User>> {
+        let mut tx = self.db.begin().await?;
+        if guard_last_admin {
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(ADMIN_GUARD_KEY)
+                .execute(&mut *tx)
+                .await?;
+            let others: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM users
+                 WHERE role = 'admin' AND is_active = TRUE AND deleted_at IS NULL AND id <> $1",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if others == 0 {
+                return Err(UsersError::CannotRemoveLastAdmin.into());
+            }
+        }
+
         let mut qb = QueryBuilder::<Postgres>::new("UPDATE users SET updated_at = ");
         qb.push_bind(Utc::now());
         if let Some(name) = patch.display_name {
@@ -145,11 +180,18 @@ impl UsersRepository {
         }
         qb.push(" WHERE id = ").push_bind(id);
         qb.push(concat!(" AND deleted_at IS NULL RETURNING ", columns!()));
-        Ok(qb.build_query_as::<User>().fetch_optional(&self.db).await?)
+        let updated = qb.build_query_as::<User>().fetch_optional(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(updated)
     }
 
+    /// Also bumps `token_version`, so every token issued before this call stops working
+    /// immediately (see the column's doc comment on [`super::entity::User`]).
     pub async fn set_password_hash(&self, id: Uuid, password_hash: &str) -> AppResult<()> {
-        sqlx::query("UPDATE users SET password_hash = $1, password_set = TRUE, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL")
+        sqlx::query(
+            "UPDATE users SET password_hash = $1, password_set = TRUE, token_version = token_version + 1, updated_at = $2
+             WHERE id = $3 AND deleted_at IS NULL",
+        )
             .bind(password_hash)
             .bind(Utc::now())
             .bind(id)
@@ -189,8 +231,32 @@ impl UsersRepository {
         Ok(())
     }
 
-    /// Soft delete. The email is replaced so the address can be registered again.
-    pub async fn soft_delete(&self, id: Uuid, released_email: &str) -> AppResult<bool> {
+    /// Soft delete. The email is replaced so the address can be registered again. See
+    /// [`Self::update`] for what `guard_last_admin` does.
+    pub async fn soft_delete(
+        &self,
+        id: Uuid,
+        released_email: &str,
+        guard_last_admin: bool,
+    ) -> AppResult<bool> {
+        let mut tx = self.db.begin().await?;
+        if guard_last_admin {
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(ADMIN_GUARD_KEY)
+                .execute(&mut *tx)
+                .await?;
+            let others: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM users
+                 WHERE role = 'admin' AND is_active = TRUE AND deleted_at IS NULL AND id <> $1",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if others == 0 {
+                return Err(UsersError::CannotRemoveLastAdmin.into());
+            }
+        }
+
         let now = Utc::now();
         let result = sqlx::query(
             "UPDATE users SET deleted_at = $1, updated_at = $2, is_active = FALSE, email = $3
@@ -200,8 +266,9 @@ impl UsersRepository {
         .bind(now)
         .bind(released_email)
         .bind(id)
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(result.rows_affected() == 1)
     }
 

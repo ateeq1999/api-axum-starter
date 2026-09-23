@@ -157,6 +157,7 @@ pub fn test_config() -> Config {
             require_verified_email: false,
             rate_limit_per_minute: 1000,
             max_concurrent_hashes: 8,
+            trust_proxy_headers: false,
         },
         bootstrap_admin: None,
         storage: StorageConfig {

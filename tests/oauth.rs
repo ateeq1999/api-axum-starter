@@ -569,6 +569,12 @@ async fn the_last_sign_in_method_cannot_be_removed() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Resetting the password bumps token_version, so the pre-reset token is no longer valid
+    // (the whole point: an attacker who stole it loses access the moment the owner resets).
+    let token = app
+        .login_token_with("only@example.com", "my-new-password-1")
+        .await;
     let (_, me) = app.get("/api/v1/users/me", Some(&token)).await;
     assert_eq!(me["has_password"], true);
     assert_eq!(
