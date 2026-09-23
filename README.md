@@ -4,6 +4,18 @@ A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL
 
 Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [API](#api)
+- [Project layout](#project-layout)
+- [How the account flows work](#how-the-account-flows-work)
+- [Mail](#mail)
+- [Background jobs](#background-jobs)
+- [Monitoring](#monitoring)
+- [Deployment and CI](#deployment-and-ci)
+- [Testing](#testing)
+- [Known limits](#known-limits)
+
 ## Quick start
 
 ```bash
@@ -29,7 +41,7 @@ curl localhost:3000/api/v1/users/me -H "authorization: Bearer <access_token>"
 
 With `MAIL_ENABLED=false` (the default) no email is sent; the message is logged instead. Set `RUST_LOG=debug` to see the body, including the link.
 
-Interactive API docs (Swagger UI) are served at `/docs`, and the raw spec at `/api-docs/openapi.json` — try requests directly from the browser once you have a token.
+Interactive API docs (Swagger UI) are served at `/docs`, and the raw spec at `/api-docs/openapi.json` — try requests directly from the browser once you have a token. See [API](#api).
 
 ### Running with Docker
 
@@ -83,7 +95,9 @@ Development only: never run it against a production database. To change the data
 
 ## Configuration
 
-All configuration is environment variables (a `.env` file is loaded if present; real environment variables win). The app fails fast at startup on missing or invalid values.
+All configuration is environment variables (a `.env` file is loaded if present; real environment variables win). The app fails fast at startup on missing or invalid values. Grouped here the same way as `.env.example`.
+
+### Core & server
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -94,13 +108,25 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 | `MAX_REQUEST_BODY_BYTES` | `10485760` (10 MiB) | Largest request body accepted anywhere in the API |
 | `JWT_SECRET` | required | At least 32 characters |
 | `JWT_TTL_SECS` | `3600` | Access token lifetime |
+| `LOG_FORMAT` | text | `json` for structured logs |
+| `RUST_LOG` | see `infra/telemetry.rs` | Log filter |
+
+### Mail (SMTP)
+
+| Variable | Default | Purpose |
+|---|---|---|
 | `MAIL_ENABLED` | `false` | `false` logs emails instead of sending |
 | `SMTP_HOST` | required if mail enabled | Mail server host (Docker service name on a shared network) |
 | `SMTP_PORT` | `587` | |
 | `SMTP_TLS` | `starttls` | `none`, `starttls` or `tls` |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | unset | Omit if the server trusts the network |
 | `MAIL_FROM` | required if mail enabled | e.g. `Acme <no-reply@example.com>` |
-| `FRONTEND_URL` | `http://localhost:5173` | Base URL for links in emails |
+
+### Account & session security
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FRONTEND_URL` | `http://localhost:5173` | Base URL for links in emails (also the default origin for CORS/passkeys) |
 | `PASSWORD_RESET_TTL_MINUTES` | `30` | |
 | `EMAIL_VERIFICATION_TTL_HOURS` | `24` | Also the lifetime of invitation links |
 | `EMAIL_CHANGE_TTL_MINUTES` | `60` | |
@@ -111,24 +137,52 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 | `MAX_FAILED_LOGIN_ATTEMPTS` | `5` | Wrong-password attempts per account before it is temporarily locked |
 | `ACCOUNT_LOCKOUT_MINUTES` | `15` | How long an account stays locked once the threshold above is hit |
 | `MAX_CONCURRENT_HASHES` | `8` | Max simultaneous argon2 operations (login, register, reset, change password). Each allocates ~19 MiB, so peak memory is about this number x 19 MiB |
+
+### Admin bootstrap
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | unset | Bootstrap administrator (set both or neither) |
+
+### Profile photos
+
+| Variable | Default | Purpose |
+|---|---|---|
 | `UPLOAD_DIR` | `./uploads` | Where profile photos are stored |
+
+### OAuth sign-in
+
+| Variable | Default | Purpose |
+|---|---|---|
 | `PUBLIC_API_URL` | `http://localhost:<BIND_ADDR port>` | Public base URL of this API (OAuth redirect URIs are built from it) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | Enables Google sign-in (set both) |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | unset | Enables GitHub sign-in (set both) |
+
+### Passkeys (WebAuthn)
+
+| Variable | Default | Purpose |
+|---|---|---|
 | `WEBAUTHN_RP_ID` | host of `FRONTEND_URL` | Passkey relying-party domain (changing it invalidates every passkey) |
 | `WEBAUTHN_RP_NAME` | `api-starter-axum` | Name the OS shows when creating a passkey |
 | `WEBAUTHN_ORIGIN` | origin of `FRONTEND_URL` | Exact origin of the page that uses passkeys |
+
+### QR-code sign-in
+
+| Variable | Default | Purpose |
+|---|---|---|
 | `QR_LOGIN_TTL_SECS` | `120` | Lifetime of a sign-in QR code (30 to 900) |
 | `QR_POLL_RATE_LIMIT_PER_MINUTE` | `120` | Per-IP limit for polling a QR session |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | unset | Bootstrap administrator (set both or neither) |
-| `LOG_FORMAT` | text | `json` for structured logs |
-| `RUST_LOG` | see `infra/telemetry.rs` | Log filter |
+
+### Metrics (Prometheus)
+
+| Variable | Default | Purpose |
+|---|---|---|
 | `METRICS_BIND_ADDR` | `127.0.0.1:9091` | Prometheus `/metrics`, served on its own listener |
 | `METRICS_TOKEN` | unset | If set, `/metrics` requires `Authorization: Bearer <token>` |
 
 ## API
 
-Base path: `/api/v1`. Errors are always `{"error": {"code", "message", "details"?}}`. Validation failures return `422`.
+Base path: `/api/v1`. Errors are always `{"error": {"code", "message", "details"?}}`. Validation failures return `422`. Every endpoint is documented interactively at **`/docs`** (Swagger UI; spec at `/api-docs/openapi.json` — see `infra/openapi.rs`). WebAuthn ceremony payloads (passkey registration/login) show there as opaque JSON objects rather than modeled field-by-field: they are browser-generated blobs (`credential.toJSON()`), not meant for manual construction.
 
 **Authenticating.** Send `Authorization: Bearer <access token>` (from any sign-in method) or an API key as `X-API-Key: ak_...` / `Authorization: Bearer ak_...`. API keys are `read` (safe HTTP methods only) or `write`, and can never manage credentials: passwords, emails, API keys, passkeys, OAuth links and approving QR logins need an interactive sign-in (marked *session* below).
 
@@ -173,7 +227,7 @@ A wrong code does not spend `pending_token`: it stays usable for another attempt
 | PATCH | `/{id}` | admin | `display_name`, `role`, `is_active` |
 | DELETE | `/{id}` | admin | Soft delete, `204` |
 
-Rules enforced: an admin cannot demote, deactivate or delete themself, and the last active admin cannot be removed.
+Rules enforced: an admin cannot demote, deactivate or delete themself, and the last active admin cannot be removed — that last check runs atomically (a Postgres advisory lock guards it), so two concurrent admin changes can never both succeed and leave zero admins.
 
 ### Profile photo
 
@@ -232,6 +286,8 @@ The device that wants to sign in shows a QR code; an already signed-in device (t
 |---|---|---|---|
 | GET | `/` | admin | Paginated, newest first. Records `user.created_by_admin`, `user.role_changed`, `user.active_status_changed`, `user.deleted`, each with `actor_user_id`, `target_user_id` and a `details` JSON blob |
 
+Recording never fails the underlying action — a logging hiccup must not block an admin from, say, deactivating a compromised account. It deliberately covers only admin actions on users for now; extending it to another module is one `AuditLogService::record` call (`modules::audit_log`).
+
 Health checks: `GET /health/live` and `GET /health/ready` (checks the database).
 
 ## Project layout
@@ -242,7 +298,7 @@ Each feature is a folder under `modules/` and owns its controller, service, repo
 src/
 ├── main.rs                             ~5 lines: load .env, call cli::run()
 ├── lib.rs, app.rs, state.rs            module tree, router assembly, AppState (holds the services)
-├── cli/                                one file per subcommand: serve, seed, setup, generate_secrets
+├── cli/                                one file per subcommand: serve, seed, setup, generate_secrets (`gen --secrets`)
 ├── config/                             environment-driven Config
 ├── infra/                              database pool + migrations, tracing setup, jobs/ (background job queue),
 │                                        secrets.rs (.env generation), metrics.rs (Prometheus), openapi.rs (Swagger)
@@ -285,16 +341,17 @@ controller  ->  service  ->  repository  ->  DB
 - Repositories hold all SQL.
 - DTOs are the request and response shapes; entities are never serialized directly.
 
-Modules depend on each other in one direction: `auth`, `avatars`, `api_keys`, `oauth`, `passkeys` and `qr_login` use `users` (and `auth` uses `mail`); `users` and `mail` use only `common`. That is why the JWT, password and `AuthUser`/`SessionUser`/`AdminUser` code lives in `common/security/` rather than in `auth`. API keys are resolved through a small `ApiKeyVerifier` interface defined in `common`, implemented by `api_keys`, so the guards do not depend on that feature.
+Modules depend on each other in one direction: `auth`, `avatars`, `api_keys`, `oauth`, `passkeys` and `qr_login` use `users` (and `auth` uses `mail`); `users` and `mail` use only `common`. That is why the JWT, password and `AuthUser`/`SessionUser`/`AdminUser` code lives in `common/security/` rather than in `auth`. API keys are resolved through a small `ApiKeyVerifier` interface defined in `common`, implemented by `api_keys`, so the guards do not depend on that feature; the same pattern (`SessionAuth`/`SessionVerifier`) lets the guards check live session state without depending on `users`.
 
 Axum extractors play the role of guards and pipes: `AuthUser` and `AdminUser` are guards, `ValidatedJson<T>` is the validation pipe, and tower layers in `common/middleware/` are the middleware. Failures are named errors (`AuthError::InvalidCredentials`, `UsersError::EmailTaken`, ...) that each convert into `AppError`, the single place that maps errors to HTTP status codes.
 
 ### Adding a feature
 
 1. Create `modules/<name>/` with `mod.rs`, `controller.rs`, `service.rs`, `repository.rs`, `entity.rs`, `dto/`, `error.rs` (`impl From<YourError> for AppError`).
-2. Add the migration under `migrations/` (`0004_<name>.sql`).
+2. Add the migration under `migrations/` (`0015_<name>.sql`).
 3. Build the service in `AppState::with_mail` (`state.rs`) and add it as an `Arc<YourService>` field; `#[derive(FromRef)]` lets handlers take `State<Arc<YourService>>`. Keep every `AppState` field a cheap handle (`Arc`, pool): axum clones the state on every request, so a `String` or `Vec` field would be copied each time.
 4. Nest its router in `modules/mod.rs`.
+5. Annotate handlers with `#[utoipa::path(...)]` and DTOs with `#[derive(ToSchema)]`, then list them in `infra/openapi.rs`'s `ApiDoc` so they show up at `/docs`.
 
 New emails: add a struct in `modules/mail/messages/`, a `<name>.html` and `<name>.txt` in `modules/mail/templates/`, and a `send_<name>` method on `MailService`.
 
@@ -318,19 +375,15 @@ Every password (register, reset, change, admin-create) is scored with `zxcvbn` a
 
 Independent of the per-IP rate limiter (which does not slow down a distributed attempt against one account from many IPs), each account tracks its own wrong-password count. After `MAX_FAILED_LOGIN_ATTEMPTS` (default 5) it is locked for `ACCOUNT_LOCKOUT_MINUTES` (default 15) — rejected with the same generic "invalid credentials" message as a wrong password, even for the correct one, so failing a login a few times can never be used to confirm an email is registered. A correct password always resets the counter, even if the sign-in is then rejected for another reason (e.g. an unverified email).
 
+### Sessions and revocation
+
+Every JWT carries the user's `token_version`, checked live against the database on every request (`common::security::session_auth`) — role and active/deleted status are always read fresh from the database too, never trusted from the token. A password change bumps `token_version`; demotion, deactivation and deletion take effect through the live status check. So all four take effect on the very next request, not just once the token expires. This trades a stateless, zero-DB-lookup check for one lookup per authenticated request — the same cost API keys already paid.
+
 ## Mail
 
 `MailService` renders each email as text plus HTML and sends it in a background task with up to 3 attempts (1 s and 4 s backoff) for transient SMTP errors. A mail failure is logged (without the link) and never fails a request. Pending mail is given 5 seconds to drain on shutdown.
 
 Every email is also persisted to `outbound_mail` before the send is attempted (`MailService::with_durable_outbox`, wired up for the real service only — never for the in-memory test transport) and removed once it succeeds. A row still `pending` at the next startup means the process crashed between rendering and sending; it is resent automatically in the background as soon as the process starts (concurrently with, not blocking, the server accepting requests). A permanently failed send is kept as `dead` for a month (pruned by the same cleanup job as the job queue) rather than deleted, so a real delivery failure stays inspectable.
-
-## Background jobs
-
-`infra/jobs/` is a small durable job queue backed by Postgres, claimed with `FOR UPDATE SKIP LOCKED` — the same mechanism the `pgmq` extension uses internally, so it needs no extension and works on any Postgres instance. It runs inside the same process as the web server (no separate worker to deploy) and is drained, like mail, for 5 seconds on shutdown.
-
-Today it runs one recurring job, `cleanup_expired_rows`: every hour it sweeps rows that expired over an hour ago from `auth_tokens`, `oauth_states`, `webauthn_challenges`, `qr_sessions` and `login_grants` (nothing did this on a schedule before; it only happened opportunistically on the next insert into the same table), then re-enqueues itself — a cron job with no `pg_cron` needed. It also prunes its own history (`succeeded` rows after a day, `dead` rows after a month), so the `jobs` table does not grow forever.
-
-Add a job kind by matching on it in `infra/jobs/worker.rs::dispatch`, following the shape of `infra/jobs/cleanup.rs`. Failed jobs back off (1s, 4s, 16s, then every 16s) and move to a `dead` status after 5 attempts, kept (not deleted) so they stay inspectable. A custom, minimal, Postgres-native queue was chosen over `apalis` or a Redis/broker-backed one to avoid an extra moving part, consistent with the rest of this starter's hand-rolled pieces (JWT, mail, rate limiter) — appropriate at a starter project's scale; revisit if throughput or multi-service fan-out ever demands a real broker.
 
 To use your SMTP server, set `MAIL_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `MAIL_FROM` and, if required, `SMTP_USERNAME`/`SMTP_PASSWORD`. TLS uses the system trust store; for a private CA set `SSL_CERT_FILE`, or use `SMTP_TLS=none` on a private Docker network. For mail to reach inboxes, the sending domain needs SPF, DKIM and DMARC records.
 
@@ -341,6 +394,14 @@ docker compose -f docker-compose.dev.yml up -d   # Mailpit: SMTP :1025, web UI h
 # .env: MAIL_ENABLED=true  SMTP_HOST=localhost  SMTP_PORT=1025  SMTP_TLS=none
 ```
 
+## Background jobs
+
+`infra/jobs/` is a small durable job queue backed by Postgres, claimed with `FOR UPDATE SKIP LOCKED` — the same mechanism the `pgmq` extension uses internally, so it needs no extension and works on any Postgres instance. It runs inside the same process as the web server (no separate worker to deploy) and is drained, like mail, for 5 seconds on shutdown.
+
+Today it runs one recurring job, `cleanup_expired_rows`: every hour it sweeps rows that expired over an hour ago from `auth_tokens`, `oauth_states`, `webauthn_challenges`, `qr_sessions` and `login_grants` (nothing did this on a schedule before; it only happened opportunistically on the next insert into the same table), then re-enqueues itself — a cron job with no `pg_cron` needed. It also prunes its own history (`succeeded` rows after a day, `dead` rows after a month), so the `jobs` table does not grow forever.
+
+Add a job kind by matching on it in `infra/jobs/worker.rs::dispatch`, following the shape of `infra/jobs/cleanup.rs`. Failed jobs back off (1s, 4s, 16s, then every 16s) and move to a `dead` status after 5 attempts, kept (not deleted) so they stay inspectable. A custom, minimal, Postgres-native queue was chosen over `apalis` or a Redis/broker-backed one to avoid an extra moving part, consistent with the rest of this starter's hand-rolled pieces (JWT, mail, rate limiter) — appropriate at a starter project's scale; revisit if throughput or multi-service fan-out ever demands a real broker.
+
 ## Monitoring
 
 `GET /metrics` (Prometheus text format) is served on its **own listener** (`METRICS_BIND_ADDR`, default `127.0.0.1:9091`) — deliberately outside the main app's router, so it carries none of its CORS/compression/timeout middleware and is not itself counted in `http_requests_total`. Set `METRICS_TOKEN` to require `Authorization: Bearer <token>` on it.
@@ -349,7 +410,7 @@ What's exposed:
 
 - **HTTP metrics**, automatic (via `axum-prometheus`): `axum_http_requests_total`, `axum_http_requests_duration_seconds`, `axum_http_requests_pending`, all labelled by `method`, `endpoint` (the route pattern, e.g. `/users/{id}`, not the raw path — safe cardinality) and `status`.
 - **Gauges**, sampled every 15s (`infra/metrics.rs::spawn_gauge_sampler`): `db_pool_connections`, `db_pool_idle_connections`, `rate_limiter_tracked_clients`, `password_hash_permits_available`.
-- **Business counters**, recorded at their call sites: `auth_register_total`, `auth_login_total{outcome}`, `password_reset_requested_total`, `password_reset_completed_total`, `oauth_login_total{provider,outcome}`, `passkey_ceremony_total{kind,outcome}`, `qr_login_total{outcome}`, `api_key_auth_total{outcome}`, `mail_send_total{outcome}`, `rate_limit_rejections_total{limiter}`.
+- **Business counters**, recorded at their call sites: `auth_register_total`, `auth_login_total{outcome}`, `auth_totp_verify_total{outcome}`, `password_reset_requested_total`, `password_reset_completed_total`, `oauth_login_total{provider,outcome}`, `passkey_ceremony_total{kind,outcome}`, `qr_login_total{outcome}`, `api_key_auth_total{outcome}`, `mail_send_total{outcome}`, `rate_limit_rejections_total{limiter}`.
 
 Local Prometheus + Grafana:
 
@@ -360,14 +421,6 @@ docker compose -f docker-compose.monitoring.yml up -d
 ```
 
 `METRICS_BIND_ADDR` defaults to loopback-only because `/metrics` has no auth by default; `0.0.0.0` is only for local Docker-based scraping, not for exposing the port on a shared or public network.
-
-## Audit log
-
-`modules::audit_log` durably records security-sensitive admin actions on users — creation, role changes, activation/deactivation, deletion — with the acting admin, the target, and a JSON `details` blob (e.g. `{"from": "user", "to": "admin"}`), queryable via `GET /api/v1/audit-log` (admin only, paginated). Recording never fails the underlying action: a logging hiccup must not block an admin from, say, deactivating a compromised account. It deliberately covers only `modules::users`' admin-mutating actions for now; extending it to other modules follows the same `AuditLogService::record` call.
-
-## API documentation
-
-Every endpoint is annotated with [`utoipa`](https://github.com/juhaku/utoipa) and served as an interactive Swagger UI at `/docs` (raw spec at `/api-docs/openapi.json`) — see `infra/openapi.rs` for the aggregator. WebAuthn ceremony payloads (passkey registration/login) are documented as opaque JSON objects rather than modeled field-by-field: they are browser-generated blobs (`credential.toJSON()`) not meant for manual construction.
 
 ## Deployment and CI
 
@@ -387,24 +440,10 @@ cargo clippy --all-targets
 
 ## Known limits
 
-Fixed:
+Deliberate scope boundaries for a starter, not oversights:
 
-- ~~Access tokens are stateless~~ — every JWT carries the user's `token_version`, checked live against the database on every request (`common::security::session_auth`). A password change bumps it, and role/active/deleted status is always read fresh from the database rather than trusted from the token — so a password change, demotion, deactivation or deletion takes effect on the very next request, not just once the token expires. This trades the original zero-DB-lookup JWT check for one lookup per authenticated request (the same cost API keys already paid).
-- ~~The rate limiter is keyed on the TCP peer address~~ — set `TRUST_PROXY_HEADERS=true` behind exactly one trusted reverse proxy to key on the right-most `X-Forwarded-For` entry instead (that proxy's own, unspoofable addition to the header); also fixes QR login's "requested from" display. Still per-replica: several API replicas do not share rate-limit state (would need Redis or similar, deliberately not added — see below).
-- ~~Mail delivery is best-effort~~ — every email is persisted (`outbound_mail`) before the send is attempted and removed once it succeeds; a row still `pending` at the next startup (the process crashed between the two) is resent automatically (`MailService::with_durable_outbox`), verified in `tests/mail_smtp.rs`.
-- ~~The "last admin" check is not serialized against concurrent requests~~ — the count check and the write now share one transaction guarded by a Postgres advisory lock (`modules::users::repository`), so two concurrent demotions/deletions can never both pass and leave zero admins. Verified under real concurrency in `tests/users.rs`.
-- ~~A deleted user's photo file is not removed~~ — `UsersService::delete` returns the avatar key so the controller removes the file.
-- ~~CORS was wide open (`CorsLayer::permissive()`)~~ — now an explicit allow-list (`CORS_ALLOWED_ORIGINS`, defaulting to just `FRONTEND_URL`); `*` opts back into permissive for local dev.
-- ~~No per-account brute-force protection~~ (only per-IP rate limiting, which a distributed attempt against one account from many IPs does not slow) — accounts now lock themselves after `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords, independent of the IP rate limiter.
-- ~~No audit trail for admin actions~~ — see [Audit log](#audit-log).
-- ~~No API documentation~~ — see [API documentation](#api-documentation).
-- ~~No CI, Dockerfile or dependency vulnerability scanning~~ — see [Deployment and CI](#deployment-and-ci).
-- ~~Password strength was only length-checked~~ — now scored with `zxcvbn`; also optionally checked against known breaches (`CHECK_PASSWORD_BREACHES`). See [Password policy](#password-policy).
-
-Still open (deliberate scope boundaries for a starter, not oversights):
-
-- Soft delete rewrites the user's email to `deleted+<id>@deleted.invalid` so the address can be registered again — by design, not a limit.
-- Password hashing is capped at `MAX_CONCURRENT_HASHES` at a time (default 8), so a burst of logins queues instead of allocating 19 MiB each. Under a burst, requests wait for a free slot; the 10 s request timeout still applies. Also by design (see the benchmark this was based on).
+- Soft delete rewrites the user's email to `deleted+<id>@deleted.invalid` so the address can be registered again — by design.
+- Password hashing is capped at `MAX_CONCURRENT_HASHES` at a time (default 8), so a burst of logins queues instead of allocating 19 MiB each. Under a burst, requests wait for a free slot; the 10 s request timeout still applies.
 - The rate limiter and profile photo storage (`UPLOAD_DIR`, local disk) are both per-replica/single-host. Sharing either across several API replicas needs an external dependency (Redis; an S3-compatible store) this starter deliberately does not bundle by default — swap `AvatarStorage` for an S3-backed implementation of the same small trait if you need that, rather than adopting one you may not.
 - Passkeys are usernameless (discoverable) only. Hardware keys that create non-discoverable credentials cannot sign in, and the passkey flow is verified with a software authenticator in tests, not with every browser and device.
 - QR login's residual risk (a user approving a login they did not start) is inherent to the UX pattern itself (the same risk WhatsApp Web has); the verification code and requester display reduce, not remove, it.
