@@ -1,6 +1,6 @@
 # api-starter-axum
 
-A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos, Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in, API keys, a durable Postgres-backed background job queue, and Prometheus metrics.
+A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos, Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in, TOTP two-factor authentication, API keys, an admin-readable audit log, a durable Postgres-backed background job queue, Prometheus metrics, and interactive API docs (Swagger UI).
 
 Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 
@@ -28,6 +28,17 @@ curl localhost:3000/api/v1/users/me -H "authorization: Bearer <access_token>"
 ```
 
 With `MAIL_ENABLED=false` (the default) no email is sent; the message is logged instead. Set `RUST_LOG=debug` to see the body, including the link.
+
+Interactive API docs (Swagger UI) are served at `/docs`, and the raw spec at `/api-docs/openapi.json` — try requests directly from the browser once you have a token.
+
+### Running with Docker
+
+```bash
+docker build -t api-starter-axum .
+docker run --env-file .env -p 3000:3000 -p 9091:9091 api-starter-axum
+```
+
+Migrations are embedded into the binary at compile time, so the image needs nothing from `migrations/`. It still needs a reachable Postgres (`DATABASE_URL`) and a database created ahead of time, same as running locally.
 
 ### First administrator
 
@@ -77,7 +88,10 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | required | e.g. `postgres://postgres:postgres@localhost:5432/api_starter_db` |
+| `DATABASE_MAX_CONNECTIONS` | `10` | Postgres connection pool size |
 | `BIND_ADDR` | `127.0.0.1:3000` | Listen address |
+| `CORS_ALLOWED_ORIGINS` | `FRONTEND_URL` | Comma-separated browser origins allowed cross-origin. `*` allows any (dev only) |
+| `MAX_REQUEST_BODY_BYTES` | `10485760` (10 MiB) | Largest request body accepted anywhere in the API |
 | `JWT_SECRET` | required | At least 32 characters |
 | `JWT_TTL_SECS` | `3600` | Access token lifetime |
 | `MAIL_ENABLED` | `false` | `false` logs emails instead of sending |
@@ -93,6 +107,9 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 | `REQUIRE_VERIFIED_EMAIL` | `false` | Block login until the email is verified |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Per client IP, for login, register and the reset/verify endpoints |
 | `TRUST_PROXY_HEADERS` | `false` | Key the client IP off `X-Forwarded-For` instead of the TCP peer. Only set behind exactly one trusted reverse proxy |
+| `CHECK_PASSWORD_BREACHES` | `false` | Also reject passwords found in the Have I Been Pwned breach database (k-anonymity; only a 5-char hash prefix is sent) |
+| `MAX_FAILED_LOGIN_ATTEMPTS` | `5` | Wrong-password attempts per account before it is temporarily locked |
+| `ACCOUNT_LOCKOUT_MINUTES` | `15` | How long an account stays locked once the threshold above is hit |
 | `MAX_CONCURRENT_HASHES` | `8` | Max simultaneous argon2 operations (login, register, reset, change password). Each allocates ~19 MiB, so peak memory is about this number x 19 MiB |
 | `UPLOAD_DIR` | `./uploads` | Where profile photos are stored |
 | `PUBLIC_API_URL` | `http://localhost:<BIND_ADDR port>` | Public base URL of this API (OAuth redirect URIs are built from it) |
@@ -130,6 +147,19 @@ Base path: `/api/v1`. Errors are always `{"error": {"code", "message", "details"
 | POST | `/email/change` | authenticated | `{new_email, current_password}`; link goes to the new address, notice to the old |
 | POST | `/email/change/confirm` | public, rate limited | `{token}` |
 | POST | `/invitations` | admin | `{email, display_name?, role?}`; emails a "set your password" link |
+
+`POST /login` returns `{access_token, token_type, expires_in}` normally, or `{requires_totp: true, pending_token}` if the account has two-factor enabled — finish with `POST /2fa/verify` below.
+
+### Two-factor authentication (`/auth/2fa`)
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/setup` | session | Generates a secret; returns it plus a QR code (`qr_code_data_uri`) and a provisioning URI. Not enforced yet |
+| POST | `/enable` | session | `{code}` from the authenticator app. Turns 2FA on and returns 8 one-time recovery codes, shown once |
+| POST | `/disable` | session | `{current_password}` — required so a stolen session token alone cannot turn it off |
+| POST | `/verify` | public, rate limited | `{pending_token, code}` — `code` is a live authenticator code or an `XXXXX-XXXXX` recovery code. Returns a real access token |
+
+A wrong code does not spend `pending_token`: it stays usable for another attempt until it expires (5 minutes) or a correct code is given.
 
 ### Users (`/users`)
 
@@ -196,6 +226,12 @@ The device that wants to sign in shows a QR code; an already signed-in device (t
 | POST | `/sessions/{id}/approve` | session | Phone: `{code}`, the 4-digit code shown on the new device |
 | POST | `/sessions/{id}/reject` | session | Phone: refuse |
 
+### Audit log (`/audit-log`)
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/` | admin | Paginated, newest first. Records `user.created_by_admin`, `user.role_changed`, `user.active_status_changed`, `user.deleted`, each with `actor_user_id`, `target_user_id` and a `details` JSON blob |
+
 Health checks: `GET /health/live` and `GET /health/ready` (checks the database).
 
 ## Project layout
@@ -208,26 +244,33 @@ src/
 ├── lib.rs, app.rs, state.rs            module tree, router assembly, AppState (holds the services)
 ├── cli/                                one file per subcommand: serve, seed, setup, generate_secrets
 ├── config/                             environment-driven Config
-├── infra/                              database pool + migrations, tracing setup, jobs/ (background job queue), secrets.rs (.env generation)
+├── infra/                              database pool + migrations, tracing setup, jobs/ (background job queue),
+│                                        secrets.rs (.env generation), metrics.rs (Prometheus), openapi.rs (Swagger)
 ├── common/                             feature-agnostic building blocks
 │   ├── error.rs                        AppError -> HTTP response
 │   ├── dto/                            Pagination, MessageResponse
-│   ├── extractors/                     ValidatedJson, ValidatedQuery
-│   ├── security/                       jwt, password hashing, Role, AuthUser, SessionUser, AdminUser, API-key hook
-│   └── middleware/                     request id, tracing, rate limiter, global layer stack
+│   ├── extractors/                     ValidatedJson, ValidatedQuery, ClientMeta
+│   ├── security/                       jwt, password hashing/policy, totp, Role, AuthUser, SessionUser, AdminUser,
+│   │                                    SessionAuth/ApiKeyAuth hooks
+│   ├── net.rs                          trusted-proxy-aware client IP resolution
+│   └── middleware/                     request id, tracing, rate limiter, global layer stack (CORS, body limit, ...)
 └── modules/
     ├── health/
-    ├── mail/                           no HTTP; MailService, SMTP transport, messages/, templates/
+    ├── mail/                           no HTTP; MailService, SMTP transport, durable outbox, messages/, templates/
     ├── users/                          controller, service, policy, repository, entity, dto, error
-    ├── auth/                           controllers/, services/, repositories/, dto/, helpers/, entity, error
+    ├── auth/                           controllers/ (session, password, email, totp), services/, repositories/,
+    │                                    dto/, helpers/, entity, error
     ├── avatars/                        profile photos: upload processing, local storage, public serving
+    ├── audit_log/                      admin action log: controller, service, repository, entity, dto
     ├── api_keys/                       hashed, scoped, revocable keys
     ├── oauth/                          Google and GitHub (PKCE, state, one-time exchange code)
     ├── passkeys/                       WebAuthn registration and usernameless sign-in
     └── qr_login/                       QR-code sign-in sessions
-migrations/                             0001 users ... 0009 job queue (applied automatically at startup)
+migrations/                             0001 users ... 0014 TOTP (applied automatically at startup)
 seeds/seed.sql, seeds/reset.sql         development seed data / wipe (`cargo run -- seed [--fresh]`)
 tests/                                  integration tests (see Testing)
+Dockerfile, .dockerignore               multi-stage build for the API image
+.github/workflows/ci.yml                fmt/clippy/test on every push and PR, plus a dependency audit job
 ```
 
 Layers, one direction only:
@@ -266,6 +309,14 @@ Reset, verification and email-change links share one mechanism, the `auth_tokens
 - Following a reset or invitation link also marks the email verified, since it proves control of the inbox.
 
 Links point at your frontend: `{FRONTEND_URL}/reset-password?token=...`, `/verify-email?token=...`, `/confirm-email-change?token=...`. The frontend page then POSTs the token to the matching endpoint.
+
+### Password policy
+
+Every password (register, reset, change, admin-create) is scored with `zxcvbn` and rejected below a "somewhat guessable" threshold (`common::security::password_policy`) — the account's own email and display name are fed in as "known" context, so e.g. `alice2024` for `alice@example.com` scores lower than it would judged alone. Set `CHECK_PASSWORD_BREACHES=true` to also reject passwords found in the Have I Been Pwned database; an outage of that external service never blocks registration or login (any network failure is treated as "not found").
+
+### Account lockout
+
+Independent of the per-IP rate limiter (which does not slow down a distributed attempt against one account from many IPs), each account tracks its own wrong-password count. After `MAX_FAILED_LOGIN_ATTEMPTS` (default 5) it is locked for `ACCOUNT_LOCKOUT_MINUTES` (default 15) — rejected with the same generic "invalid credentials" message as a wrong password, even for the correct one, so failing a login a few times can never be used to confirm an email is registered. A correct password always resets the counter, even if the sign-in is then rejected for another reason (e.g. an unverified email).
 
 ## Mail
 
@@ -310,6 +361,19 @@ docker compose -f docker-compose.monitoring.yml up -d
 
 `METRICS_BIND_ADDR` defaults to loopback-only because `/metrics` has no auth by default; `0.0.0.0` is only for local Docker-based scraping, not for exposing the port on a shared or public network.
 
+## Audit log
+
+`modules::audit_log` durably records security-sensitive admin actions on users — creation, role changes, activation/deactivation, deletion — with the acting admin, the target, and a JSON `details` blob (e.g. `{"from": "user", "to": "admin"}`), queryable via `GET /api/v1/audit-log` (admin only, paginated). Recording never fails the underlying action: a logging hiccup must not block an admin from, say, deactivating a compromised account. It deliberately covers only `modules::users`' admin-mutating actions for now; extending it to other modules follows the same `AuditLogService::record` call.
+
+## API documentation
+
+Every endpoint is annotated with [`utoipa`](https://github.com/juhaku/utoipa) and served as an interactive Swagger UI at `/docs` (raw spec at `/api-docs/openapi.json`) — see `infra/openapi.rs` for the aggregator. WebAuthn ceremony payloads (passkey registration/login) are documented as opaque JSON objects rather than modeled field-by-field: they are browser-generated blobs (`credential.toJSON()`) not meant for manual construction.
+
+## Deployment and CI
+
+- `Dockerfile`: multi-stage build (`cargo build --release` in a `rust:slim` image, running in `debian:bookworm-slim`). Migrations are compiled into the binary, so the runtime image needs nothing from `migrations/`.
+- `.github/workflows/ci.yml`: on every push/PR, runs `cargo fmt --check`, `cargo clippy -- -D warnings` and the full test suite against a Postgres service container, plus a separate job auditing dependencies against the RustSec advisory database (`rustsec/audit-check`).
+
 ## Testing
 
 ```bash
@@ -317,9 +381,9 @@ cargo test
 cargo clippy --all-targets
 ```
 
-- Unit tests sit next to the code (token hashing, policy rules, pagination, rate limiter, templates, ...).
-- `tests/*.rs` drive the full router in-process against a fresh, throwaway Postgres database created per test (see `tests/common/mod.rs`; needs `TEST_DATABASE_URL` or a local Postgres on `localhost:5432` with the default `postgres`/`postgres` credentials), with an in-memory mail transport so tests can read the emailed links: `auth`, `users`, `avatars`, `api_keys`, `oauth` (against a fake Google/GitHub server), `passkeys` (a software authenticator performs the real WebAuthn ceremonies), `qr_login`, `jobs`, `seed`.
-- `tests/mail_smtp.rs` runs the real SMTP transport against a small fake SMTP server.
+- Unit tests sit next to the code (token hashing, policy rules, pagination, rate limiter, password strength, TOTP, recovery codes, templates, ...).
+- `tests/*.rs` drive the full router in-process against a fresh, throwaway Postgres database created per test (see `tests/common/mod.rs`; needs `TEST_DATABASE_URL` or a local Postgres on `localhost:5432` with the default `postgres`/`postgres` credentials), with an in-memory mail transport so tests can read the emailed links: `auth` (including account lockout), `totp` (full 2FA enroll/login/recovery-code flow), `audit_log`, `users` (including a real concurrent race for the last-admin guard), `avatars`, `api_keys`, `oauth` (against a fake Google/GitHub server), `passkeys` (a software authenticator performs the real WebAuthn ceremonies), `qr_login`, `jobs`, `seed`.
+- `tests/mail_smtp.rs` runs the real SMTP transport against a small fake SMTP server, including recovering an email left `pending` by a simulated crash.
 
 ## Known limits
 
@@ -330,6 +394,12 @@ Fixed:
 - ~~Mail delivery is best-effort~~ — every email is persisted (`outbound_mail`) before the send is attempted and removed once it succeeds; a row still `pending` at the next startup (the process crashed between the two) is resent automatically (`MailService::with_durable_outbox`), verified in `tests/mail_smtp.rs`.
 - ~~The "last admin" check is not serialized against concurrent requests~~ — the count check and the write now share one transaction guarded by a Postgres advisory lock (`modules::users::repository`), so two concurrent demotions/deletions can never both pass and leave zero admins. Verified under real concurrency in `tests/users.rs`.
 - ~~A deleted user's photo file is not removed~~ — `UsersService::delete` returns the avatar key so the controller removes the file.
+- ~~CORS was wide open (`CorsLayer::permissive()`)~~ — now an explicit allow-list (`CORS_ALLOWED_ORIGINS`, defaulting to just `FRONTEND_URL`); `*` opts back into permissive for local dev.
+- ~~No per-account brute-force protection~~ (only per-IP rate limiting, which a distributed attempt against one account from many IPs does not slow) — accounts now lock themselves after `MAX_FAILED_LOGIN_ATTEMPTS` wrong passwords, independent of the IP rate limiter.
+- ~~No audit trail for admin actions~~ — see [Audit log](#audit-log).
+- ~~No API documentation~~ — see [API documentation](#api-documentation).
+- ~~No CI, Dockerfile or dependency vulnerability scanning~~ — see [Deployment and CI](#deployment-and-ci).
+- ~~Password strength was only length-checked~~ — now scored with `zxcvbn`; also optionally checked against known breaches (`CHECK_PASSWORD_BREACHES`). See [Password policy](#password-policy).
 
 Still open (deliberate scope boundaries for a starter, not oversights):
 

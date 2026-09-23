@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 use super::{entity::OAuthIdentity, provider::Provider};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ProviderInfo {
     pub provider: Provider,
     pub name: &'static str,
@@ -22,7 +23,7 @@ impl ProviderInfo {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct IdentityResponse {
     pub provider: Provider,
     pub email: Option<String>,
@@ -39,18 +40,20 @@ impl From<OAuthIdentity> for IdentityResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AuthorizeUrlResponse {
     pub authorize_url: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct LoginQuery {
     /// Path in the frontend to return to after signing in, e.g. `/settings`.
     pub redirect: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct CallbackQuery {
     pub code: Option<String>,
     pub state: Option<String>,
@@ -58,7 +61,7 @@ pub struct CallbackQuery {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct ExchangeDto {
     #[validate(length(min = 1, max = 256, message = "is required"))]
     pub code: String,

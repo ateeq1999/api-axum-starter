@@ -30,7 +30,15 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", get(get_one).patch(update).delete(remove))
 }
 
-async fn list(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users",
+    params(ListUsersQuery),
+    responses((status = 200, description = "Paginated user list", body = PaginatedResponse<UserResponse>)),
+    security(("bearer_auth" = [])),
+    tag = "users"
+)]
+pub(crate) async fn list(
     _admin: AdminUser,
     State(users): State<Arc<UsersService>>,
     ValidatedQuery(query): ValidatedQuery<ListUsersQuery>,
@@ -38,22 +46,48 @@ async fn list(
     Ok(Json(users.list(&query).await?))
 }
 
-async fn create(
-    _admin: AdminUser,
+#[utoipa::path(
+    post,
+    path = "/api/v1/users",
+    request_body = CreateUserDto,
+    responses(
+        (status = 201, description = "User created", body = UserResponse),
+        (status = 409, description = "Email already registered"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "users"
+)]
+pub(crate) async fn create(
+    AdminUser(actor): AdminUser,
     State(users): State<Arc<UsersService>>,
     ValidatedJson(dto): ValidatedJson<CreateUserDto>,
 ) -> AppResult<(StatusCode, Json<UserResponse>)> {
-    Ok((StatusCode::CREATED, Json(users.create(dto).await?)))
+    Ok((StatusCode::CREATED, Json(users.create(&actor, dto).await?)))
 }
 
-async fn me(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/me",
+    responses((status = 200, description = "The signed-in user", body = UserResponse)),
+    security(("bearer_auth" = [])),
+    tag = "users"
+)]
+pub(crate) async fn me(
     actor: AuthUser,
     State(users): State<Arc<UsersService>>,
 ) -> AppResult<Json<UserResponse>> {
     Ok(Json(users.get(&actor, actor.id).await?))
 }
 
-async fn update_me(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/users/me",
+    request_body = UpdateProfileDto,
+    responses((status = 200, description = "Updated profile", body = UserResponse)),
+    security(("bearer_auth" = [])),
+    tag = "users"
+)]
+pub(crate) async fn update_me(
     actor: AuthUser,
     State(users): State<Arc<UsersService>>,
     ValidatedJson(dto): ValidatedJson<UpdateProfileDto>,
@@ -61,7 +95,19 @@ async fn update_me(
     Ok(Json(users.update_profile(&actor, dto).await?))
 }
 
-async fn get_one(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{id}",
+    params(("id" = Uuid, Path, description = "User id")),
+    responses(
+        (status = 200, description = "The requested user", body = UserResponse),
+        (status = 403, description = "Not allowed to view this user"),
+        (status = 404, description = "User not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "users"
+)]
+pub(crate) async fn get_one(
     actor: AuthUser,
     State(users): State<Arc<UsersService>>,
     Path(id): Path<Uuid>,
@@ -69,7 +115,20 @@ async fn get_one(
     Ok(Json(users.get(&actor, id).await?))
 }
 
-async fn update(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/users/{id}",
+    params(("id" = Uuid, Path, description = "User id")),
+    request_body = UpdateUserDto,
+    responses(
+        (status = 200, description = "Updated user", body = UserResponse),
+        (status = 400, description = "Would lock the actor out or remove the last admin"),
+        (status = 404, description = "User not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "users"
+)]
+pub(crate) async fn update(
     AdminUser(actor): AdminUser,
     State(users): State<Arc<UsersService>>,
     Path(id): Path<Uuid>,
@@ -78,7 +137,19 @@ async fn update(
     Ok(Json(users.update(&actor, id, dto).await?))
 }
 
-async fn remove(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/users/{id}",
+    params(("id" = Uuid, Path, description = "User id")),
+    responses(
+        (status = 204, description = "User soft-deleted"),
+        (status = 400, description = "Cannot delete self, or would remove the last admin"),
+        (status = 404, description = "User not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "users"
+)]
+pub(crate) async fn remove(
     AdminUser(actor): AdminUser,
     State(users): State<Arc<UsersService>>,
     State(avatars): State<Arc<AvatarService>>,

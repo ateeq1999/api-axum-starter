@@ -8,6 +8,9 @@ pub enum TokenPurpose {
     PasswordReset,
     EmailVerification,
     EmailChange,
+    /// Issued after a correct password for a two-factor-enabled account, redeemed once the
+    /// authenticator code (or a recovery code) is also confirmed. See `services::totp`.
+    TwoFactorPending,
 }
 
 #[derive(Debug, Clone, FromRow)]

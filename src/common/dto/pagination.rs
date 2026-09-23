@@ -1,4 +1,5 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 
 const DEFAULT_PER_PAGE: u32 = 20;
 pub const MAX_PER_PAGE: u32 = 100;
@@ -27,7 +28,7 @@ impl Pagination {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PaginatedResponse<T> {
     pub items: Vec<T>,
     pub page: u32,

@@ -1,11 +1,12 @@
 use serde::Deserialize;
+use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::common::security::Role;
 
 /// Admin creates an account with a password they choose.
 /// To let the person pick their own password, use `POST /auth/invitations` instead.
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateUserDto {
     #[validate(email(message = "must be a valid email"))]
     pub email: String,

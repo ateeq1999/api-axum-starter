@@ -53,11 +53,27 @@ fn parse_provider(name: &str) -> Result<Provider, OAuthError> {
     Provider::parse(name).ok_or(OAuthError::ProviderUnavailable)
 }
 
-async fn providers(State(oauth): State<Arc<OAuthService>>) -> Json<Vec<ProviderInfo>> {
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/oauth/providers",
+    responses((status = 200, description = "Configured providers only", body = [ProviderInfo])),
+    tag = "oauth"
+)]
+pub(crate) async fn providers(State(oauth): State<Arc<OAuthService>>) -> Json<Vec<ProviderInfo>> {
     Json(oauth.providers())
 }
 
-async fn login(
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/oauth/{provider}/login",
+    params(
+        ("provider" = String, Path, description = "google | github"),
+        LoginQuery,
+    ),
+    responses((status = 307, description = "Redirects the browser to the provider")),
+    tag = "oauth"
+)]
+pub(crate) async fn login(
     State(oauth): State<Arc<OAuthService>>,
     Path(provider): Path<String>,
     Query(query): Query<LoginQuery>,
@@ -68,7 +84,17 @@ async fn login(
     Ok(Redirect::to(&url))
 }
 
-async fn callback(
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/oauth/{provider}/callback",
+    params(
+        ("provider" = String, Path, description = "google | github"),
+        CallbackQuery,
+    ),
+    responses((status = 307, description = "Redirects to <frontend>/oauth/callback with a code, a linked marker, or an error")),
+    tag = "oauth"
+)]
+pub(crate) async fn callback(
     State(oauth): State<Arc<OAuthService>>,
     State(config): State<Arc<Config>>,
     Path(provider): Path<String>,
@@ -105,14 +131,32 @@ fn frontend_redirect(frontend_url: &str, outcome: CallbackOutcome) -> Redirect {
     Redirect::to(&format!("{frontend_url}/oauth/callback?{}", query.finish()))
 }
 
-async fn exchange(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/oauth/exchange",
+    request_body = ExchangeDto,
+    responses(
+        (status = 200, description = "Access token for the completed sign-in", body = TokenResponse),
+        (status = 400, description = "Code is invalid, expired or already used"),
+    ),
+    tag = "oauth"
+)]
+pub(crate) async fn exchange(
     State(oauth): State<Arc<OAuthService>>,
     ValidatedJson(dto): ValidatedJson<ExchangeDto>,
 ) -> AppResult<Json<TokenResponse>> {
     Ok(Json(oauth.exchange(&dto.code).await?))
 }
 
-async fn link(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/oauth/{provider}/link",
+    params(("provider" = String, Path, description = "google | github")),
+    responses((status = 200, description = "Where to send the browser to link this provider", body = AuthorizeUrlResponse)),
+    security(("bearer_auth" = [])),
+    tag = "oauth"
+)]
+pub(crate) async fn link(
     actor: SessionUser,
     State(oauth): State<Arc<OAuthService>>,
     Path(provider): Path<String>,
@@ -122,14 +166,32 @@ async fn link(
     ))
 }
 
-async fn identities(
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/oauth/identities",
+    responses((status = 200, description = "Providers linked to the caller's account", body = [IdentityResponse])),
+    security(("bearer_auth" = [])),
+    tag = "oauth"
+)]
+pub(crate) async fn identities(
     actor: SessionUser,
     State(oauth): State<Arc<OAuthService>>,
 ) -> AppResult<Json<Vec<IdentityResponse>>> {
     Ok(Json(oauth.identities(&actor).await?))
 }
 
-async fn unlink(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/auth/oauth/{provider}",
+    params(("provider" = String, Path, description = "google | github")),
+    responses(
+        (status = 204, description = "Unlinked"),
+        (status = 400, description = "Not linked, or the account's last sign-in method"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "oauth"
+)]
+pub(crate) async fn unlink(
     actor: SessionUser,
     State(oauth): State<Arc<OAuthService>>,
     Path(provider): Path<String>,

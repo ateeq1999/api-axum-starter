@@ -14,6 +14,12 @@ pub enum AuthError {
     EmailNotVerified,
     #[error("this account is disabled")]
     AccountDisabled,
+    #[error("two-factor authentication is already enabled")]
+    TotpAlreadyEnabled,
+    #[error("start two-factor setup first")]
+    NoTotpSetupInProgress,
+    #[error("that code is incorrect or has expired")]
+    InvalidTotpCode,
 }
 
 impl From<AuthError> for AppError {
@@ -22,11 +28,15 @@ impl From<AuthError> for AppError {
         match e {
             AuthError::InvalidOrExpiredLink
             | AuthError::WrongCurrentPassword
-            | AuthError::EmailUnchanged => AppError::BadRequest(message),
+            | AuthError::EmailUnchanged
+            | AuthError::TotpAlreadyEnabled
+            | AuthError::NoTotpSetupInProgress => AppError::BadRequest(message),
             AuthError::EmailNotVerified | AuthError::AccountDisabled => {
                 AppError::Forbidden(message)
             }
-            AuthError::InvalidCredentials => AppError::Unauthorized(message),
+            AuthError::InvalidCredentials | AuthError::InvalidTotpCode => {
+                AppError::Unauthorized(message)
+            }
         }
     }
 }

@@ -14,7 +14,7 @@ use crate::common::{
 
 macro_rules! columns {
     () => {
-        "id, email, password_hash, display_name, role, is_active, email_verified_at, created_at, updated_at, deleted_at, avatar_key, password_set, token_version"
+        "id, email, password_hash, display_name, role, is_active, email_verified_at, created_at, updated_at, deleted_at, avatar_key, password_set, token_version, failed_login_attempts, locked_until, totp_secret, totp_enabled"
     };
 }
 
@@ -194,6 +194,73 @@ impl UsersRepository {
         )
             .bind(password_hash)
             .bind(Utc::now())
+            .bind(id)
+            .execute(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    /// Counts one wrong password attempt and, once `max_attempts` is reached, locks the account
+    /// until `now + lockout`. Done in one statement so a burst of concurrent wrong-password
+    /// requests cannot each read a stale (pre-increment) count and all decide not to lock.
+    pub async fn record_failed_login(
+        &self,
+        id: Uuid,
+        max_attempts: i32,
+        lockout: chrono::Duration,
+    ) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE users SET
+                 failed_login_attempts = failed_login_attempts + 1,
+                 locked_until = CASE
+                     WHEN failed_login_attempts + 1 >= $2 THEN $3
+                     ELSE locked_until
+                 END
+             WHERE id = $1",
+        )
+        .bind(id)
+        .bind(max_attempts)
+        .bind(Utc::now() + lockout)
+        .execute(&self.db)
+        .await?;
+        Ok(())
+    }
+
+    /// Called once the correct password is confirmed, so a legitimate sign-in (even one that is
+    /// then rejected for another reason, e.g. an unverified email) always clears the counter.
+    pub async fn reset_failed_logins(&self, id: Uuid) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&self.db)
+        .await?;
+        Ok(())
+    }
+
+    /// Stores a freshly generated secret while two-factor setup is in progress. Does not turn
+    /// two-factor on by itself — see [`Self::enable_totp`].
+    pub async fn set_pending_totp_secret(&self, id: Uuid, base32_secret: &str) -> AppResult<()> {
+        sqlx::query("UPDATE users SET totp_secret = $1 WHERE id = $2")
+            .bind(base32_secret)
+            .bind(id)
+            .execute(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    /// Turns two-factor on for the secret already stored by [`Self::set_pending_totp_secret`].
+    pub async fn enable_totp(&self, id: Uuid) -> AppResult<()> {
+        sqlx::query("UPDATE users SET totp_enabled = TRUE WHERE id = $1")
+            .bind(id)
+            .execute(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    /// Turns two-factor off and forgets the secret entirely (a new enrollment starts fresh).
+    pub async fn disable_totp(&self, id: Uuid) -> AppResult<()> {
+        sqlx::query("UPDATE users SET totp_enabled = FALSE, totp_secret = NULL WHERE id = $1")
             .bind(id)
             .execute(&self.db)
             .await?;

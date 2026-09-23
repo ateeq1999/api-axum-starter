@@ -23,6 +23,67 @@ async fn register_login_and_me() {
 }
 
 #[tokio::test]
+async fn an_account_is_locked_after_too_many_wrong_passwords() {
+    let mut config = test_config();
+    config.account.max_failed_login_attempts = 2;
+    let app = spawn_with(config).await;
+    app.register("locked@example.com").await;
+
+    let (status, _) = app.login("locked@example.com", "wrong-password").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = app.login("locked@example.com", "wrong-password").await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "2nd wrong attempt locks the account"
+    );
+
+    // Even the *correct* password is rejected while locked — a wrong-password rejection and a
+    // "you're locked out" rejection must look identical, or failing a login a few times would
+    // let anyone confirm an email exists.
+    let (status, _) = app.login("locked@example.com", PASSWORD).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "locked even with the right password"
+    );
+
+    sqlx::query("UPDATE users SET locked_until = NULL WHERE email = 'locked@example.com'")
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let (status, _) = app.login("locked@example.com", PASSWORD).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "sign-in works again once the lock expires"
+    );
+}
+
+#[tokio::test]
+async fn a_correct_password_resets_the_failed_login_counter() {
+    let mut config = test_config();
+    config.account.max_failed_login_attempts = 2;
+    let app = spawn_with(config).await;
+    app.register("recovers@example.com").await;
+
+    // One wrong attempt (not enough to lock), then a correct one: the counter must reset, so a
+    // *second* isolated wrong attempt afterwards does not carry over and cause a lock.
+    app.login("recovers@example.com", "wrong-password").await;
+    let (status, _) = app.login("recovers@example.com", PASSWORD).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = app.login("recovers@example.com", "wrong-password").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = app.login("recovers@example.com", PASSWORD).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "not locked: the earlier attempt was reset"
+    );
+}
+
+#[tokio::test]
 async fn duplicate_registration_and_bad_credentials() {
     let app = spawn().await;
     app.register("bob@example.com").await;

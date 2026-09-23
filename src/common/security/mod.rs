@@ -4,10 +4,12 @@ pub mod auth_user;
 pub mod error;
 pub mod jwt;
 pub mod password;
+pub mod password_policy;
 pub mod role;
 pub mod secret_token;
 pub mod session_auth;
 pub mod session_user;
+pub mod totp;
 
 pub use admin_user::AdminUser;
 pub use api_key::{ApiKeyAuth, ApiKeyScope, ApiKeyVerifier, Credential};

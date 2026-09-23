@@ -6,7 +6,8 @@ use crate::{app::build_router, config::Config, infra, state::AppState};
 
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
-    let pool = infra::database::connect(&config.database_url, 5).await?;
+    let pool =
+        infra::database::connect(&config.database_url, config.database_max_connections).await?;
     let bind_addr = config.bind_addr;
     let bootstrap_admin = config.bootstrap_admin.clone();
 

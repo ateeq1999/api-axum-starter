@@ -1,6 +1,7 @@
 pub mod email;
 pub mod password;
 pub mod session;
+pub mod totp;
 
 use axum::{Router, middleware};
 
@@ -14,10 +15,12 @@ pub fn router(limiter: RateLimiter) -> Router<AppState> {
         .merge(session::rate_limited())
         .merge(password::rate_limited())
         .merge(email::rate_limited())
+        .merge(totp::rate_limited())
         .route_layer(middleware::from_fn_with_state(limiter, rate_limit::enforce));
 
     limited
         .merge(session::authenticated())
         .merge(password::authenticated())
         .merge(email::authenticated())
+        .merge(totp::authenticated())
 }

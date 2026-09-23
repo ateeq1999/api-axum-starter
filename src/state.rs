@@ -12,6 +12,7 @@ use crate::{
     config::Config,
     modules::{
         api_keys::{ApiKeysRepository, ApiKeysService},
+        audit_log::{AuditLogRepository, AuditLogService},
         auth::AuthService,
         avatars::{AvatarService, AvatarStorage},
         mail::MailService,
@@ -35,6 +36,7 @@ pub struct AppState {
     pub oauth: Arc<OAuthService>,
     pub passkeys: Arc<PasskeysService>,
     pub qr_login: Arc<QrLoginService>,
+    pub audit_log: Arc<AuditLogService>,
     /// Lets the auth extractors (in `common`) resolve API keys without depending on `api_keys`.
     pub api_key_auth: ApiKeyAuth,
     /// Lets the auth extractors (in `common`) verify sessions live against the database (role,
@@ -59,7 +61,12 @@ impl AppState {
     pub async fn with_mail(db: PgPool, config: Config, mail: MailService) -> anyhow::Result<Self> {
         password::set_max_concurrent_hashes(config.account.max_concurrent_hashes);
 
-        let users = UsersService::new(UsersRepository::new(db.clone()));
+        let audit_log = AuditLogService::new(AuditLogRepository::new(db.clone()));
+        let users = UsersService::new(
+            UsersRepository::new(db.clone()),
+            config.account.check_password_breaches,
+            audit_log.clone(),
+        );
         let auth = AuthService::new(db.clone(), users.clone(), mail.clone(), &config);
         let rate_limiter = RateLimiter::new(
             "strict",
@@ -113,6 +120,7 @@ impl AppState {
             oauth: Arc::new(oauth),
             passkeys: Arc::new(passkeys),
             qr_login: Arc::new(qr_login),
+            audit_log: Arc::new(audit_log),
             jwt: Arc::new(config.jwt.clone()),
             rate_limiter,
             trust_proxy: TrustProxy(config.account.trust_proxy_headers),

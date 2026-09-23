@@ -1,9 +1,10 @@
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 use crate::common::dto::Pagination;
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum UserSort {
     #[default]
@@ -11,7 +12,7 @@ pub enum UserSort {
     Email,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SortOrder {
     Asc,
@@ -19,7 +20,8 @@ pub enum SortOrder {
     Desc,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListUsersQuery {
     pub page: Option<u32>,
     pub per_page: Option<u32>,

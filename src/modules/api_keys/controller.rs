@@ -24,7 +24,15 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", delete(revoke))
 }
 
-async fn create(
+#[utoipa::path(
+    post,
+    path = "/api/v1/api-keys",
+    request_body = CreateApiKeyDto,
+    responses((status = 201, description = "Key created; the raw key is shown only in this response", body = CreatedApiKeyResponse)),
+    security(("bearer_auth" = [])),
+    tag = "api-keys"
+)]
+pub(crate) async fn create(
     actor: SessionUser,
     State(keys): State<Arc<ApiKeysService>>,
     ValidatedJson(dto): ValidatedJson<CreateApiKeyDto>,
@@ -32,14 +40,32 @@ async fn create(
     Ok((StatusCode::CREATED, Json(keys.create(&actor, dto).await?)))
 }
 
-async fn list(
+#[utoipa::path(
+    get,
+    path = "/api/v1/api-keys",
+    responses((status = 200, description = "The caller's own active keys", body = [ApiKeyResponse])),
+    security(("bearer_auth" = [])),
+    tag = "api-keys"
+)]
+pub(crate) async fn list(
     actor: SessionUser,
     State(keys): State<Arc<ApiKeysService>>,
 ) -> AppResult<Json<Vec<ApiKeyResponse>>> {
     Ok(Json(keys.list(&actor).await?))
 }
 
-async fn revoke(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/api-keys/{id}",
+    params(("id" = Uuid, Path, description = "API key id")),
+    responses(
+        (status = 204, description = "Key revoked"),
+        (status = 404, description = "Key not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "api-keys"
+)]
+pub(crate) async fn revoke(
     actor: SessionUser,
     State(keys): State<Arc<ApiKeysService>>,
     Path(id): Path<Uuid>,

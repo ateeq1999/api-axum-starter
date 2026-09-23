@@ -14,6 +14,10 @@ pub enum UsersError {
     CannotLockOutSelf,
     #[error("at least one active administrator must remain")]
     CannotRemoveLastAdmin,
+    #[error("{0}")]
+    PasswordTooWeak(String),
+    #[error("this password has appeared in a known data breach; choose a different one")]
+    PasswordPreviouslyBreached,
 }
 
 impl From<UsersError> for AppError {
@@ -25,7 +29,9 @@ impl From<UsersError> for AppError {
             UsersError::Forbidden => AppError::Forbidden(message),
             UsersError::CannotDeleteSelf
             | UsersError::CannotLockOutSelf
-            | UsersError::CannotRemoveLastAdmin => AppError::BadRequest(message),
+            | UsersError::CannotRemoveLastAdmin
+            | UsersError::PasswordTooWeak(_)
+            | UsersError::PasswordPreviouslyBreached => AppError::BadRequest(message),
         }
     }
 }

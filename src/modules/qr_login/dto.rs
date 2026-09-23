@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use validator::Validate;
 
 /// Returned to the device that wants to sign in (the one that shows the QR code).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CreatedSession {
     pub id: String,
     /// Keep it on this device: it is required to poll the session and collect the token.
@@ -20,7 +21,7 @@ pub struct CreatedSession {
 }
 
 /// `pending`, `scanned`, `approved` (with the token), `rejected`, `expired` or `consumed`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PollResponse {
     pub status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,7 +44,7 @@ impl PollResponse {
 }
 
 /// Shown on the approving device so the user can tell whether the request is really theirs.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ScanResponse {
     pub requester_ip: Option<String>,
     pub requester_agent: Option<String>,
@@ -51,7 +52,7 @@ pub struct ScanResponse {
     pub expires_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct ApproveDto {
     /// The verification code shown on the device that is signing in.
     #[validate(length(equal = 4, message = "must be 4 digits"))]

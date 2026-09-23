@@ -28,7 +28,17 @@ pub fn authenticated() -> Router<AppState> {
     Router::new().route("/email/change", post(request_change))
 }
 
-async fn verify(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/email/verify",
+    request_body = VerifyEmailDto,
+    responses(
+        (status = 200, description = "Email verified", body = MessageResponse),
+        (status = 400, description = "Link is invalid, expired or already used"),
+    ),
+    tag = "auth"
+)]
+pub(crate) async fn verify(
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<VerifyEmailDto>,
 ) -> AppResult<Json<MessageResponse>> {
@@ -36,7 +46,14 @@ async fn verify(
     Ok(Json(MessageResponse::new("Email verified.")))
 }
 
-async fn resend(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/email/verification/resend",
+    responses((status = 202, description = "Accepted; a no-op if already verified", body = MessageResponse)),
+    security(("bearer_auth" = [])),
+    tag = "auth"
+)]
+pub(crate) async fn resend(
     actor: AuthUser,
     State(auth): State<Arc<AuthService>>,
 ) -> AppResult<(StatusCode, Json<MessageResponse>)> {
@@ -49,7 +66,15 @@ async fn resend(
     ))
 }
 
-async fn request_change(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/email/change",
+    request_body = ChangeEmailDto,
+    responses((status = 202, description = "Confirmation link sent to the new address", body = MessageResponse)),
+    security(("bearer_auth" = [])),
+    tag = "auth"
+)]
+pub(crate) async fn request_change(
     SessionUser(actor): SessionUser,
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<ChangeEmailDto>,
@@ -63,7 +88,17 @@ async fn request_change(
     ))
 }
 
-async fn confirm_change(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/email/change/confirm",
+    request_body = VerifyEmailDto,
+    responses(
+        (status = 200, description = "Email address updated", body = MessageResponse),
+        (status = 400, description = "Link is invalid, expired or already used"),
+    ),
+    tag = "auth"
+)]
+pub(crate) async fn confirm_change(
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<VerifyEmailDto>,
 ) -> AppResult<Json<MessageResponse>> {

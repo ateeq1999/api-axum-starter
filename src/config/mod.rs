@@ -19,7 +19,15 @@ pub enum ConfigError {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
+    /// Max size of the Postgres connection pool (tune alongside instance count and Postgres's
+    /// own `max_connections`).
+    pub database_max_connections: u32,
     pub bind_addr: SocketAddr,
+    /// Browser origins allowed to call this API cross-origin (defaults to just `frontend.url`).
+    /// The literal value `*` opts back into allowing any origin, for local/dev convenience.
+    pub cors_allowed_origins: Vec<String>,
+    /// Largest request body accepted anywhere in the API, enforced before a handler runs.
+    pub max_request_body_bytes: usize,
     pub jwt: JwtSettings,
     pub smtp: SmtpConfig,
     pub frontend: FrontendConfig,
@@ -98,6 +106,15 @@ pub struct AccountConfig {
     /// on when this app is deployed behind exactly one trusted reverse proxy that sets/appends
     /// that header itself — otherwise a client can spoof its own IP.
     pub trust_proxy_headers: bool,
+    /// Also check candidate passwords against the Have I Been Pwned breach database (k-anonymity
+    /// API — only a 5-character hash prefix is ever sent, never the password or its full hash).
+    /// Off by default so an external service outage can never block registration or login.
+    pub check_password_breaches: bool,
+    /// Wrong-password attempts (per account, independent of the per-IP rate limiter) allowed
+    /// before the account is temporarily locked.
+    pub max_failed_login_attempts: i32,
+    /// How long an account stays locked once `max_failed_login_attempts` is reached.
+    pub account_lockout_minutes: i64,
 }
 
 #[derive(Clone)]
@@ -121,6 +138,19 @@ fn required(name: &'static str) -> Result<String, ConfigError> {
 
 pub(crate) fn non_empty(name: &'static str) -> Option<String> {
     env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+/// Reads `CORS_ALLOWED_ORIGINS` as a comma-separated list, defaulting to just the configured
+/// frontend origin when unset. `Vec<String>` has no `FromStr`, so this does not go through
+/// `optional`.
+fn parse_cors_allowed_origins(frontend_url: &str) -> Vec<String> {
+    match non_empty("CORS_ALLOWED_ORIGINS") {
+        Some(raw) => raw
+            .split(',')
+            .map(|origin| origin.trim().to_string())
+            .collect(),
+        None => vec![frontend_url.to_string()],
+    }
 }
 
 pub(crate) fn optional<T>(name: &'static str, default: T) -> Result<T, ConfigError>
@@ -199,10 +229,14 @@ impl Config {
                 .to_string(),
         };
         let webauthn = WebauthnConfig::from_env(&frontend.url)?;
+        let cors_allowed_origins = parse_cors_allowed_origins(&frontend.url);
 
         Ok(Self {
             database_url: required("DATABASE_URL")?,
+            database_max_connections: optional("DATABASE_MAX_CONNECTIONS", 10)?,
             bind_addr,
+            cors_allowed_origins,
+            max_request_body_bytes: optional("MAX_REQUEST_BODY_BYTES", 10 * 1024 * 1024)?,
             jwt: JwtSettings {
                 secret: jwt_secret,
                 ttl_secs: optional("JWT_TTL_SECS", 3600)?,
@@ -217,6 +251,9 @@ impl Config {
                 rate_limit_per_minute: optional("RATE_LIMIT_PER_MINUTE", 20)?,
                 max_concurrent_hashes,
                 trust_proxy_headers: optional("TRUST_PROXY_HEADERS", false)?,
+                check_password_breaches: optional("CHECK_PASSWORD_BREACHES", false)?,
+                max_failed_login_attempts: optional("MAX_FAILED_LOGIN_ATTEMPTS", 5)?,
+                account_lockout_minutes: optional("ACCOUNT_LOCKOUT_MINUTES", 15)?,
             },
             bootstrap_admin,
             storage: StorageConfig::from_env()?,

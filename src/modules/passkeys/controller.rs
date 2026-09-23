@@ -42,14 +42,36 @@ pub fn router(limiter: RateLimiter) -> Router<AppState> {
         .route("/{id}", delete(remove))
 }
 
-async fn begin_registration(
+// WebAuthn ceremony payloads (`webauthn-rs` types) are opaque, browser-generated JSON blobs not
+// meant for manual construction, so they are documented as plain objects here rather than fully
+// modeled field-by-field.
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/passkeys/register/begin",
+    responses((status = 200, description = "WebAuthn creation options plus a challenge_id; pass options to navigator.credentials.create()", body = Object)),
+    security(("bearer_auth" = [])),
+    tag = "passkeys"
+)]
+pub(crate) async fn begin_registration(
     actor: SessionUser,
     State(passkeys): State<Arc<PasskeysService>>,
 ) -> AppResult<Json<BeginResponse<CreationChallengeResponse>>> {
     Ok(Json(passkeys.begin_registration(&actor).await?))
 }
 
-async fn finish_registration(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/passkeys/register/finish",
+    request_body(content = Object, description = "{ challenge_id, name?, credential: <credential.toJSON()> }"),
+    responses(
+        (status = 201, description = "Passkey registered", body = PasskeyResponse),
+        (status = 400, description = "Challenge invalid/expired, or the ceremony was rejected"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "passkeys"
+)]
+pub(crate) async fn finish_registration(
     actor: SessionUser,
     State(passkeys): State<Arc<PasskeysService>>,
     ValidatedJson(dto): ValidatedJson<FinishRegistrationDto>,
@@ -60,27 +82,62 @@ async fn finish_registration(
     ))
 }
 
-async fn begin_login(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/passkeys/login/begin",
+    responses((status = 200, description = "Usernameless WebAuthn request options plus a challenge_id", body = Object)),
+    tag = "passkeys"
+)]
+pub(crate) async fn begin_login(
     State(passkeys): State<Arc<PasskeysService>>,
 ) -> AppResult<Json<BeginResponse<RequestChallengeResponse>>> {
     Ok(Json(passkeys.begin_login().await?))
 }
 
-async fn finish_login(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/passkeys/login/finish",
+    request_body(content = Object, description = "{ challenge_id, credential: <credential.toJSON()> }"),
+    responses(
+        (status = 200, description = "Signed in", body = TokenResponse),
+        (status = 400, description = "Challenge invalid/expired, or the ceremony was rejected"),
+    ),
+    tag = "passkeys"
+)]
+pub(crate) async fn finish_login(
     State(passkeys): State<Arc<PasskeysService>>,
     ValidatedJson(dto): ValidatedJson<FinishLoginDto>,
 ) -> AppResult<Json<TokenResponse>> {
     Ok(Json(passkeys.finish_login(dto).await?))
 }
 
-async fn list(
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/passkeys",
+    responses((status = 200, description = "The caller's own passkeys", body = [PasskeyResponse])),
+    security(("bearer_auth" = [])),
+    tag = "passkeys"
+)]
+pub(crate) async fn list(
     actor: SessionUser,
     State(passkeys): State<Arc<PasskeysService>>,
 ) -> AppResult<Json<Vec<PasskeyResponse>>> {
     Ok(Json(passkeys.list(&actor).await?))
 }
 
-async fn remove(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/auth/passkeys/{id}",
+    params(("id" = Uuid, Path, description = "Passkey id")),
+    responses(
+        (status = 204, description = "Removed"),
+        (status = 400, description = "The account's last sign-in method"),
+        (status = 404, description = "Not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "passkeys"
+)]
+pub(crate) async fn remove(
     actor: SessionUser,
     State(passkeys): State<Arc<PasskeysService>>,
     Path(id): Path<Uuid>,

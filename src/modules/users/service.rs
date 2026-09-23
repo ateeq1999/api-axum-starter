@@ -1,3 +1,4 @@
+use serde_json::json;
 use uuid::Uuid;
 
 use super::{
@@ -7,10 +8,16 @@ use super::{
     policy,
     repository::{NewUser, UserFilter, UserPatch, UsersRepository},
 };
-use crate::common::{
-    dto::PaginatedResponse,
-    error::AppResult,
-    security::{AuthUser, Role, SecurityError, SessionVerifier, api_key::BoxFuture, password},
+use crate::{
+    common::{
+        dto::PaginatedResponse,
+        error::AppResult,
+        security::{
+            AuthUser, Role, SecurityError, SessionVerifier, api_key::BoxFuture, password,
+            password_policy,
+        },
+    },
+    modules::audit_log::{self, AuditLogService},
 };
 
 /// Emails are compared case-insensitively; store them trimmed and lowercased.
@@ -21,25 +28,51 @@ pub fn normalize_email(raw: &str) -> String {
 #[derive(Clone)]
 pub struct UsersService {
     repo: UsersRepository,
+    /// Whether to also check candidate passwords against the Have I Been Pwned breach database
+    /// (see `common::security::password_policy`). Off by default: an external service outage
+    /// must never be able to block registration or password changes.
+    check_password_breaches: bool,
+    /// Reused across breach-check calls rather than built per request (a `reqwest::Client` owns
+    /// a connection pool that is meant to be shared).
+    breach_check_http_client: reqwest::Client,
+    audit_log: AuditLogService,
 }
 
 impl UsersService {
-    pub fn new(repo: UsersRepository) -> Self {
-        Self { repo }
+    pub fn new(
+        repo: UsersRepository,
+        check_password_breaches: bool,
+        audit_log: AuditLogService,
+    ) -> Self {
+        Self {
+            repo,
+            check_password_breaches,
+            breach_check_http_client: reqwest::Client::new(),
+            audit_log,
+        }
     }
 
     // ---- use-cases exposed over HTTP (users controller) -------------------------------
 
-    pub async fn create(&self, dto: CreateUserDto) -> AppResult<UserResponse> {
+    pub async fn create(&self, actor: &AuthUser, dto: CreateUserDto) -> AppResult<UserResponse> {
+        let assigned_role = dto.role.unwrap_or_default();
         let user = self
             .create_with_password(
                 &dto.email,
                 dto.password,
                 dto.display_name.as_deref(),
-                dto.role.unwrap_or_default(),
+                assigned_role,
                 false,
             )
             .await?;
+        self.audit_log
+            .record(
+                actor.id,
+                audit_log::action::USER_CREATED_BY_ADMIN,
+                Some(user.id),
+                json!({ "email": user.email, "role": assigned_role }),
+            )
+            .await;
         Ok(user.into())
     }
 
@@ -77,6 +110,7 @@ impl UsersService {
         dto: UpdateUserDto,
     ) -> AppResult<UserResponse> {
         policy::check_admin_update(actor, id, &dto)?;
+        let before = self.require(id).await?;
 
         // The authoritative "would this leave zero active admins?" check happens atomically
         // inside `repo.update`, in the same transaction as the write; this only decides whether
@@ -96,6 +130,31 @@ impl UsersService {
             )
             .await?
             .ok_or(UsersError::NotFound)?;
+
+        if let Some(new_role) = dto.role
+            && new_role != before.role
+        {
+            self.audit_log
+                .record(
+                    actor.id,
+                    audit_log::action::USER_ROLE_CHANGED,
+                    Some(id),
+                    json!({ "from": before.role, "to": new_role }),
+                )
+                .await;
+        }
+        if let Some(now_active) = dto.is_active
+            && now_active != before.is_active
+        {
+            self.audit_log
+                .record(
+                    actor.id,
+                    audit_log::action::USER_ACTIVE_STATUS_CHANGED,
+                    Some(id),
+                    json!({ "from": before.is_active, "to": now_active }),
+                )
+                .await;
+        }
         Ok(updated.into())
     }
 
@@ -134,6 +193,14 @@ impl UsersService {
         {
             return Err(UsersError::NotFound.into());
         }
+        self.audit_log
+            .record(
+                actor.id,
+                audit_log::action::USER_DELETED,
+                Some(id),
+                json!({ "email": target.email }),
+            )
+            .await;
         Ok(target.avatar_key)
     }
 
@@ -148,6 +215,8 @@ impl UsersService {
         email_verified: bool,
     ) -> AppResult<User> {
         let email = normalize_email(email);
+        self.reject_password_if_policy_violation(&password, &email, display_name)
+            .await?;
         let hash = password::hash_blocking(password).await?;
         self.repo
             .create(NewUser {
@@ -207,8 +276,43 @@ impl UsersService {
     }
 
     pub async fn set_password(&self, id: Uuid, new_password: String) -> AppResult<()> {
+        let account = self.require(id).await?;
+        self.reject_password_if_policy_violation(
+            &new_password,
+            &account.email,
+            account.display_name.as_deref(),
+        )
+        .await?;
         let hash = password::hash_blocking(new_password).await?;
         self.repo.set_password_hash(id, &hash).await
+    }
+
+    /// See `UsersRepository::record_failed_login`.
+    pub async fn record_failed_login(
+        &self,
+        id: Uuid,
+        max_attempts: i32,
+        lockout: chrono::Duration,
+    ) -> AppResult<()> {
+        self.repo
+            .record_failed_login(id, max_attempts, lockout)
+            .await
+    }
+
+    pub async fn reset_failed_logins(&self, id: Uuid) -> AppResult<()> {
+        self.repo.reset_failed_logins(id).await
+    }
+
+    pub async fn set_pending_totp_secret(&self, id: Uuid, base32_secret: &str) -> AppResult<()> {
+        self.repo.set_pending_totp_secret(id, base32_secret).await
+    }
+
+    pub async fn enable_totp(&self, id: Uuid) -> AppResult<()> {
+        self.repo.enable_totp(id).await
+    }
+
+    pub async fn disable_totp(&self, id: Uuid) -> AppResult<()> {
+        self.repo.disable_totp(id).await
     }
 
     pub async fn mark_email_verified(&self, id: Uuid) -> AppResult<()> {
@@ -249,6 +353,35 @@ impl UsersService {
             .find_by_id(id)
             .await?
             .ok_or(UsersError::NotFound)?)
+    }
+
+    /// Enforces password strength (always) and, if `check_password_breaches` is on, that the
+    /// password has not appeared in a known breach. `email`/`display_name` are passed to the
+    /// strength check as "known inputs" so a password built from them scores lower than it would
+    /// judged in isolation.
+    async fn reject_password_if_policy_violation(
+        &self,
+        candidate_password: &str,
+        email: &str,
+        display_name: Option<&str>,
+    ) -> AppResult<()> {
+        let mut known_inputs: Vec<&str> = vec![email];
+        if let Some(name) = display_name {
+            known_inputs.push(name);
+        }
+        password_policy::reject_if_too_weak(candidate_password, &known_inputs)
+            .map_err(UsersError::PasswordTooWeak)?;
+
+        if self.check_password_breaches
+            && password_policy::has_appeared_in_a_known_breach(
+                &self.breach_check_http_client,
+                candidate_password,
+            )
+            .await
+        {
+            return Err(UsersError::PasswordPreviouslyBreached.into());
+        }
+        Ok(())
     }
 }
 

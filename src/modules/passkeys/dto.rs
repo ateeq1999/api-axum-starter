@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
@@ -34,7 +35,7 @@ pub struct FinishLoginDto {
     pub credential: PublicKeyCredential,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PasskeyResponse {
     pub id: Uuid,
     pub name: String,

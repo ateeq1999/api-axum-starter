@@ -1,6 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::auth_user::AuthUser;
 use crate::common::error::AppResult;
@@ -9,7 +10,9 @@ use crate::common::error::AppResult;
 pub const API_KEY_PREFIX: &str = "ak_";
 
 /// What an API key may do. `Read` keys are limited to safe HTTP methods (GET, HEAD, OPTIONS).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, sqlx::Type)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, sqlx::Type, ToSchema,
+)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum ApiKeyScope {

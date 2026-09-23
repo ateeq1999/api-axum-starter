@@ -133,7 +133,10 @@ pub fn test_config() -> Config {
         // Never actually connected with: `spawn_with` below creates a fresh real database
         // per test and connects to that instead.
         database_url: String::new(),
+        database_max_connections: 5,
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        cors_allowed_origins: vec!["https://app.test".into()],
+        max_request_body_bytes: 10 * 1024 * 1024,
         jwt: JwtSettings {
             secret: "0123456789abcdef0123456789abcdef".into(),
             ttl_secs: 3600,
@@ -158,6 +161,9 @@ pub fn test_config() -> Config {
             rate_limit_per_minute: 1000,
             max_concurrent_hashes: 8,
             trust_proxy_headers: false,
+            check_password_breaches: false,
+            max_failed_login_attempts: 5,
+            account_lockout_minutes: 15,
         },
         bootstrap_admin: None,
         storage: StorageConfig {

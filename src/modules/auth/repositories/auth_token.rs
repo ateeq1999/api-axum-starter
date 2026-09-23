@@ -54,6 +54,26 @@ impl AuthTokenRepository {
         Ok(())
     }
 
+    /// Looks up a valid (unused, unexpired) token without consuming it — for flows where the
+    /// caller may need to retry a second check (e.g. a TOTP code) before the token should
+    /// actually be spent. Prefer [`Self::claim`] whenever a peek-then-spend split is not needed.
+    pub async fn find_unused(
+        &self,
+        purpose: TokenPurpose,
+        token_hash: &str,
+    ) -> AppResult<Option<AuthToken>> {
+        Ok(sqlx::query_as::<_, AuthToken>(
+            "SELECT id, user_id, purpose, token_hash, new_email, expires_at, used_at, created_at
+             FROM auth_tokens
+             WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > $3",
+        )
+        .bind(token_hash)
+        .bind(purpose)
+        .bind(Utc::now())
+        .fetch_optional(&self.db)
+        .await?)
+    }
+
     /// Atomically finds a valid (unused, unexpired) token and marks it used.
     /// Two concurrent redemptions of the same link cannot both succeed.
     pub async fn claim(

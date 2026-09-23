@@ -33,7 +33,19 @@ pub fn public_router() -> Router<AppState> {
     Router::new().route("/{file}", get(serve))
 }
 
-async fn upload(
+#[utoipa::path(
+    put,
+    path = "/api/v1/users/me/avatar",
+    request_body(content_type = "application/octet-stream", description = "Raw image bytes (JPEG/PNG/WebP/GIF), 2 MiB max"),
+    responses(
+        (status = 200, description = "Updated profile, including the new avatar_url", body = UserResponse),
+        (status = 413, description = "Upload larger than 2 MiB"),
+        (status = 422, description = "Not a decodable image"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "avatars"
+)]
+pub(crate) async fn upload(
     actor: AuthUser,
     State(avatars): State<Arc<AvatarService>>,
     request: Request,
@@ -55,14 +67,31 @@ async fn upload(
     Ok(Json(avatars.set(&actor, body).await?))
 }
 
-async fn remove(
+#[utoipa::path(
+    delete,
+    path = "/api/v1/users/me/avatar",
+    responses((status = 200, description = "Updated profile, avatar_url now null", body = UserResponse)),
+    security(("bearer_auth" = [])),
+    tag = "avatars"
+)]
+pub(crate) async fn remove(
     actor: AuthUser,
     State(avatars): State<Arc<AvatarService>>,
 ) -> AppResult<Json<UserResponse>> {
     Ok(Json(avatars.remove(&actor).await?))
 }
 
-async fn serve(
+#[utoipa::path(
+    get,
+    path = "/api/v1/avatars/{file}",
+    params(("file" = String, Path, description = "Generated avatar file name")),
+    responses(
+        (status = 200, description = "The JPEG image", content_type = "image/jpeg"),
+        (status = 404, description = "No such file"),
+    ),
+    tag = "avatars"
+)]
+pub(crate) async fn serve(
     State(avatars): State<Arc<AvatarService>>,
     Path(file): Path<String>,
 ) -> AppResult<Response> {

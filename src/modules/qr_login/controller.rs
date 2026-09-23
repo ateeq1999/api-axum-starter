@@ -52,14 +52,27 @@ pub fn router(create_limiter: RateLimiter, poll_limiter: RateLimiter) -> Router<
         .route("/sessions/{id}/reject", post(reject))
 }
 
-async fn create(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/qr/sessions",
+    responses((status = 201, description = "New session: show the QR code and verification code on this device", body = CreatedSession)),
+    tag = "qr-login"
+)]
+pub(crate) async fn create(
     State(qr): State<Arc<QrLoginService>>,
     meta: ClientMeta,
 ) -> AppResult<(StatusCode, Json<CreatedSession>)> {
     Ok((StatusCode::CREATED, Json(qr.create(meta).await?)))
 }
 
-async fn poll(
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/qr/sessions/{id}",
+    params(("id" = String, Path, description = "Session id")),
+    responses((status = 200, description = "Current status; carries the access token exactly once, right after approval", body = PollResponse)),
+    tag = "qr-login"
+)]
+pub(crate) async fn poll(
     State(qr): State<Arc<QrLoginService>>,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -68,7 +81,18 @@ async fn poll(
     Ok(Json(qr.poll(&id, secret).await?))
 }
 
-async fn scan(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/qr/sessions/{id}/scan",
+    params(("id" = String, Path, description = "Session id")),
+    responses(
+        (status = 200, description = "Requester details to show the approving user", body = ScanResponse),
+        (status = 400, description = "Already scanned by someone else"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "qr-login"
+)]
+pub(crate) async fn scan(
     actor: SessionUser,
     State(qr): State<Arc<QrLoginService>>,
     Path(id): Path<String>,
@@ -76,7 +100,19 @@ async fn scan(
     Ok(Json(qr.scan(&actor, &id).await?))
 }
 
-async fn approve(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/qr/sessions/{id}/approve",
+    params(("id" = String, Path, description = "Session id")),
+    request_body = ApproveDto,
+    responses(
+        (status = 200, description = "Approved", body = MessageResponse),
+        (status = 400, description = "Wrong verification code, or too many attempts"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "qr-login"
+)]
+pub(crate) async fn approve(
     actor: SessionUser,
     State(qr): State<Arc<QrLoginService>>,
     Path(id): Path<String>,
@@ -86,7 +122,15 @@ async fn approve(
     Ok(Json(MessageResponse::new("Login approved.")))
 }
 
-async fn reject(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/qr/sessions/{id}/reject",
+    params(("id" = String, Path, description = "Session id")),
+    responses((status = 200, description = "Rejected", body = MessageResponse)),
+    security(("bearer_auth" = [])),
+    tag = "qr-login"
+)]
+pub(crate) async fn reject(
     actor: SessionUser,
     State(qr): State<Arc<QrLoginService>>,
     Path(id): Path<String>,

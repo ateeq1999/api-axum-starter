@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{common::security::ApiKeyScope, modules::api_keys::entity::ApiKey};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ApiKeyResponse {
     pub id: Uuid,
     pub name: String,
@@ -31,7 +32,7 @@ impl From<ApiKey> for ApiKeyResponse {
 }
 
 /// Returned once, when the key is created: the only time the secret is visible.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CreatedApiKeyResponse {
     #[serde(flatten)]
     pub api_key: ApiKeyResponse,

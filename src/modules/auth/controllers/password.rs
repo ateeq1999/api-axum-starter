@@ -31,7 +31,14 @@ pub fn authenticated() -> Router<AppState> {
         .route("/invitations", post(invite))
 }
 
-async fn forgot(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/password/forgot",
+    request_body = ForgotPasswordDto,
+    responses((status = 202, description = "Always accepted, whether or not the address is registered", body = MessageResponse)),
+    tag = "auth"
+)]
+pub(crate) async fn forgot(
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<ForgotPasswordDto>,
 ) -> AppResult<(StatusCode, Json<MessageResponse>)> {
@@ -44,7 +51,17 @@ async fn forgot(
     ))
 }
 
-async fn reset(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/password/reset",
+    request_body = ResetPasswordDto,
+    responses(
+        (status = 200, description = "Password updated", body = MessageResponse),
+        (status = 400, description = "Link invalid/expired, or the password is too weak"),
+    ),
+    tag = "auth"
+)]
+pub(crate) async fn reset(
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<ResetPasswordDto>,
 ) -> AppResult<Json<MessageResponse>> {
@@ -52,7 +69,18 @@ async fn reset(
     Ok(Json(MessageResponse::new("Password updated.")))
 }
 
-async fn change(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/password/change",
+    request_body = ChangePasswordDto,
+    responses(
+        (status = 200, description = "Password updated", body = MessageResponse),
+        (status = 400, description = "Wrong current password, or the new one is too weak"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "auth"
+)]
+pub(crate) async fn change(
     SessionUser(actor): SessionUser,
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<ChangePasswordDto>,
@@ -61,7 +89,15 @@ async fn change(
     Ok(Json(MessageResponse::new("Password updated.")))
 }
 
-async fn invite(
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/invitations",
+    request_body = InviteUserDto,
+    responses((status = 201, description = "Account created; a \"set your password\" link was emailed", body = UserResponse)),
+    security(("bearer_auth" = [])),
+    tag = "auth"
+)]
+pub(crate) async fn invite(
     _admin: AdminUser,
     State(auth): State<Arc<AuthService>>,
     ValidatedJson(dto): ValidatedJson<InviteUserDto>,

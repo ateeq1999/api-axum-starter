@@ -21,6 +21,15 @@ pub struct User {
     /// Bumped on every password change; embedded in JWTs at issue time so an old token stops
     /// working immediately once the password changes, instead of staying valid until it expires.
     pub token_version: i32,
+    pub failed_login_attempts: i32,
+    /// Set once `failed_login_attempts` crosses the configured threshold; login is rejected
+    /// (with the same generic "invalid credentials" message, even for the correct password)
+    /// until this passes.
+    pub locked_until: Option<DateTime<Utc>>,
+    /// Set while TOTP two-factor setup is in progress or completed. Only actually required at
+    /// login when `totp_enabled` is true — an abandoned setup attempt never blocks sign-in.
+    pub totp_secret: Option<String>,
+    pub totp_enabled: bool,
 }
 
 impl User {

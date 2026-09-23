@@ -49,6 +49,19 @@ impl OneTimeTokenService {
             .ok_or(AuthError::InvalidOrExpiredLink)?)
     }
 
+    /// Checks the token is valid without consuming it, for a flow that needs to retry a second
+    /// check (e.g. a TOTP code) before the token should actually be spent — see
+    /// `services::totp::verify_login`, which peeks, checks the code, then only calls
+    /// [`Self::redeem`] once that succeeds.
+    pub async fn peek(&self, purpose: TokenPurpose, raw: &str) -> AppResult<AuthToken> {
+        let hash = one_time_token::hash(raw);
+        Ok(self
+            .repo
+            .find_unused(purpose, &hash)
+            .await?
+            .ok_or(AuthError::InvalidOrExpiredLink)?)
+    }
+
     pub async fn invalidate(&self, user_id: Uuid, purpose: TokenPurpose) -> AppResult<()> {
         self.repo.invalidate_unused(user_id, purpose).await
     }
