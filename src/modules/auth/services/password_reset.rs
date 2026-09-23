@@ -71,6 +71,7 @@ impl PasswordResetService {
             .await?;
         self.mail
             .send_password_reset(&user.email, &raw, self.reset_ttl);
+        metrics::counter!("password_reset_requested_total").increment(1);
         Ok(())
     }
 
@@ -93,6 +94,7 @@ impl PasswordResetService {
             .invalidate(user.id, TokenPurpose::PasswordReset)
             .await?;
         self.mail.send_password_changed(&user.email);
+        metrics::counter!("password_reset_completed_total").increment(1);
         Ok(())
     }
 

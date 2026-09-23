@@ -56,6 +56,7 @@ impl AppState {
         let users = UsersService::new(UsersRepository::new(db.clone()));
         let auth = AuthService::new(db.clone(), users.clone(), mail.clone(), &config);
         let rate_limiter = RateLimiter::new(
+            "strict",
             config.account.rate_limit_per_minute,
             Duration::from_secs(60),
         );

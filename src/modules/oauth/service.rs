@@ -124,10 +124,18 @@ impl OAuthService {
         provider: Provider,
         query: CallbackQuery,
     ) -> CallbackOutcome {
-        match self.callback(provider, query).await {
+        let outcome = match self.callback(provider, query).await {
             Ok(outcome) => outcome,
             Err(reason) => CallbackOutcome::Failed(reason),
-        }
+        };
+        let label = match &outcome {
+            CallbackOutcome::LoggedIn { .. } => "logged_in",
+            CallbackOutcome::Linked { .. } => "linked",
+            CallbackOutcome::Failed(reason) => reason,
+        };
+        metrics::counter!("oauth_login_total", "provider" => provider.as_str(), "outcome" => label)
+            .increment(1);
+        outcome
     }
 
     async fn callback(

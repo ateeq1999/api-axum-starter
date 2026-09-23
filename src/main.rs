@@ -83,6 +83,7 @@ async fn serve() -> anyhow::Result<()> {
     let bootstrap_admin = config.bootstrap_admin.clone();
 
     let jobs = infra::jobs::spawn(pool.clone());
+    let metrics_config = config.metrics.clone();
     let state = AppState::new(pool, config).await?;
     if let Some(admin) = bootstrap_admin {
         state
@@ -91,6 +92,15 @@ async fn serve() -> anyhow::Result<()> {
             .await?;
     }
     let mail = state.mail.clone();
+
+    infra::metrics::spawn_gauge_sampler(state.db.clone(), state.rate_limiter.clone());
+    let (_layer, metrics_handle) = infra::metrics::layer_and_handle();
+    tokio::spawn(infra::metrics::serve(
+        metrics_config.bind_addr,
+        metrics_handle,
+        metrics_config.token,
+    ));
+
     let app = build_router(state);
 
     let listener = TcpListener::bind(bind_addr).await?;

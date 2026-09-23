@@ -1,0 +1,31 @@
+# Local Prometheus + Grafana for scraping this API's /metrics.
+#   docker compose -f docker-compose.monitoring.yml up -d
+# Prometheus: http://localhost:9090   Grafana: http://localhost:3002 (admin/admin)
+#
+# The API must be reachable at host.docker.internal:9091, which means METRICS_BIND_ADDR must be
+# overridden to 0.0.0.0:9091 for local Docker scraping (the app's secure-by-default
+# 127.0.0.1:9091 is not reachable from inside a container even via host.docker.internal).
+services:
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana-oss
+    depends_on:
+      - prometheus
+    ports:
+      - "3002:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  grafana-data:

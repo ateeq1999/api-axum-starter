@@ -124,6 +124,7 @@ impl QrLoginService {
         }
 
         let access_token = jwt::issue(user.id, user.role, &self.jwt.secret, self.jwt.ttl_secs)?;
+        metrics::counter!("qr_login_total", "outcome" => "success").increment(1);
         Ok(PollResponse {
             status: "approved",
             access_token: Some(access_token),
@@ -166,6 +167,7 @@ impl QrLoginService {
 
         if session.code != dto.code {
             let cancelled = self.repo.record_wrong_code(id).await?;
+            metrics::counter!("qr_login_total", "outcome" => "wrong_code").increment(1);
             return Err(if cancelled {
                 QrError::TooManyAttempts
             } else {

@@ -26,6 +26,11 @@ fn permits() -> Arc<Semaphore> {
         .clone()
 }
 
+/// How many concurrent hash/verify slots are free right now. For the `password_hash_permits_available` gauge.
+pub fn available_permits() -> usize {
+    permits().available_permits()
+}
+
 pub fn hash(password: &str) -> AppResult<String> {
     Argon2::default()
         .hash_password(password.as_bytes())

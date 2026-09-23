@@ -140,6 +140,35 @@ impl WebauthnConfig {
     }
 }
 
+/// `/metrics` is served on its own listener, outside the main app's router and middleware stack
+/// (no CORS, no compression, not counted in `http_requests_total`).
+#[derive(Clone)]
+pub struct MetricsConfig {
+    /// Defaults to loopback-only: safe by default, but a Dockerized Prometheus cannot reach it
+    /// via `host.docker.internal` unless this is overridden to bind on `0.0.0.0`.
+    pub bind_addr: SocketAddr,
+    /// If set, `/metrics` requires `Authorization: Bearer <token>`.
+    pub token: Option<String>,
+}
+
+impl fmt::Debug for MetricsConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MetricsConfig")
+            .field("bind_addr", &self.bind_addr)
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+
+impl MetricsConfig {
+    pub(super) fn from_env() -> Result<Self, ConfigError> {
+        Ok(Self {
+            bind_addr: optional("METRICS_BIND_ADDR", "127.0.0.1:9091".parse().unwrap())?,
+            token: non_empty("METRICS_TOKEN"),
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct QrLoginConfig {
     /// How long a QR code stays valid (the client shows a fresh one afterwards).

@@ -3,7 +3,7 @@ use std::{env, fmt, net::SocketAddr, str::FromStr};
 pub mod features;
 
 pub use features::{
-    OAuthConfig, OAuthProviderConfig, QrLoginConfig, StorageConfig, WebauthnConfig,
+    MetricsConfig, OAuthConfig, OAuthProviderConfig, QrLoginConfig, StorageConfig, WebauthnConfig,
 };
 
 use crate::common::security::{JwtSettings, password};
@@ -29,6 +29,7 @@ pub struct Config {
     pub oauth: OAuthConfig,
     pub webauthn: WebauthnConfig,
     pub qr_login: QrLoginConfig,
+    pub metrics: MetricsConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,6 +217,7 @@ impl Config {
             oauth: OAuthConfig::from_env(bind_addr)?,
             webauthn,
             qr_login: QrLoginConfig::from_env()?,
+            metrics: MetricsConfig::from_env()?,
         })
     }
 }

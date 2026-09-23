@@ -19,6 +19,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
     let strict = state.rate_limiter.clone();
     // Polling a QR login is frequent by design, so it gets its own, higher limit.
     let qr_poll = RateLimiter::new(
+        "qr_poll",
         state.config.qr_login.poll_rate_limit_per_minute,
         Duration::from_secs(60),
     );

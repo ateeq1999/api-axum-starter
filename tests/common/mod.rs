@@ -4,8 +4,8 @@ use api_starter_axum::{
     app::build_router,
     common::security::JwtSettings,
     config::{
-        AccountConfig, Config, FrontendConfig, OAuthConfig, QrLoginConfig, SmtpConfig, SmtpTls,
-        StorageConfig, WebauthnConfig,
+        AccountConfig, Config, FrontendConfig, MetricsConfig, OAuthConfig, QrLoginConfig,
+        SmtpConfig, SmtpTls, StorageConfig, WebauthnConfig,
     },
     infra::database,
     modules::mail::{MailService, OutgoingMail},
@@ -176,6 +176,10 @@ pub fn test_config() -> Config {
         qr_login: QrLoginConfig {
             ttl_secs: 120,
             poll_rate_limit_per_minute: 1000,
+        },
+        metrics: MetricsConfig {
+            bind_addr: "127.0.0.1:0".parse().unwrap(),
+            token: None,
         },
     }
 }

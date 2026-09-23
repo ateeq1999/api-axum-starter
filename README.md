@@ -1,6 +1,6 @@
 # api-starter-axum
 
-A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos, Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in, API keys, and a durable Postgres-backed background job queue.
+A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos, Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in, API keys, a durable Postgres-backed background job queue, and Prometheus metrics.
 
 Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 
@@ -93,6 +93,8 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | unset | Bootstrap administrator (set both or neither) |
 | `LOG_FORMAT` | text | `json` for structured logs |
 | `RUST_LOG` | see `infra/telemetry.rs` | Log filter |
+| `METRICS_BIND_ADDR` | `127.0.0.1:9091` | Prometheus `/metrics`, served on its own listener |
+| `METRICS_TOKEN` | unset | If set, `/metrics` requires `Authorization: Bearer <token>` |
 
 ## API
 
@@ -260,7 +262,7 @@ Links point at your frontend: `{FRONTEND_URL}/reset-password?token=...`, `/verif
 
 Today it runs one recurring job, `cleanup_expired_rows`: every hour it sweeps rows that expired over an hour ago from `auth_tokens`, `oauth_states`, `webauthn_challenges`, `qr_sessions` and `login_grants` (nothing did this on a schedule before; it only happened opportunistically on the next insert into the same table), then re-enqueues itself — a cron job with no `pg_cron` needed. It also prunes its own history (`succeeded` rows after a day, `dead` rows after a month), so the `jobs` table does not grow forever.
 
-Add a job kind by matching on it in `infra/jobs/worker.rs::dispatch`, following the shape of `infra/jobs/cleanup.rs`. Failed jobs back off (1s, 4s, 16s, then every 16s) and move to a `dead` status after 5 attempts, kept (not deleted) so they stay inspectable. See `queue.md` at the repo root for the full design rationale, including why a Redis- or broker-backed queue was not used.
+Add a job kind by matching on it in `infra/jobs/worker.rs::dispatch`, following the shape of `infra/jobs/cleanup.rs`. Failed jobs back off (1s, 4s, 16s, then every 16s) and move to a `dead` status after 5 attempts, kept (not deleted) so they stay inspectable. A custom, minimal, Postgres-native queue was chosen over `apalis` or a Redis/broker-backed one to avoid an extra moving part, consistent with the rest of this starter's hand-rolled pieces (JWT, mail, rate limiter) — appropriate at a starter project's scale; revisit if throughput or multi-service fan-out ever demands a real broker.
 
 To use your SMTP server, set `MAIL_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `MAIL_FROM` and, if required, `SMTP_USERNAME`/`SMTP_PASSWORD`. TLS uses the system trust store; for a private CA set `SSL_CERT_FILE`, or use `SMTP_TLS=none` on a private Docker network. For mail to reach inboxes, the sending domain needs SPF, DKIM and DMARC records.
 
@@ -270,6 +272,26 @@ To catch mail locally instead of sending it:
 docker compose -f docker-compose.dev.yml up -d   # Mailpit: SMTP :1025, web UI http://localhost:8025
 # .env: MAIL_ENABLED=true  SMTP_HOST=localhost  SMTP_PORT=1025  SMTP_TLS=none
 ```
+
+## Monitoring
+
+`GET /metrics` (Prometheus text format) is served on its **own listener** (`METRICS_BIND_ADDR`, default `127.0.0.1:9091`) — deliberately outside the main app's router, so it carries none of its CORS/compression/timeout middleware and is not itself counted in `http_requests_total`. Set `METRICS_TOKEN` to require `Authorization: Bearer <token>` on it.
+
+What's exposed:
+
+- **HTTP metrics**, automatic (via `axum-prometheus`): `axum_http_requests_total`, `axum_http_requests_duration_seconds`, `axum_http_requests_pending`, all labelled by `method`, `endpoint` (the route pattern, e.g. `/users/{id}`, not the raw path — safe cardinality) and `status`.
+- **Gauges**, sampled every 15s (`infra/metrics.rs::spawn_gauge_sampler`): `db_pool_connections`, `db_pool_idle_connections`, `rate_limiter_tracked_clients`, `password_hash_permits_available`.
+- **Business counters**, recorded at their call sites: `auth_register_total`, `auth_login_total{outcome}`, `password_reset_requested_total`, `password_reset_completed_total`, `oauth_login_total{provider,outcome}`, `passkey_ceremony_total{kind,outcome}`, `qr_login_total{outcome}`, `api_key_auth_total{outcome}`, `mail_send_total{outcome}`, `rate_limit_rejections_total{limiter}`.
+
+Local Prometheus + Grafana:
+
+```bash
+# METRICS_BIND_ADDR=0.0.0.0:9091 in .env first — a container can't reach 127.0.0.1 on the host
+docker compose -f docker-compose.monitoring.yml up -d
+# Prometheus: http://localhost:9090   Grafana: http://localhost:3002 (admin/admin, Prometheus datasource pre-provisioned)
+```
+
+`METRICS_BIND_ADDR` defaults to loopback-only because `/metrics` has no auth by default; `0.0.0.0` is only for local Docker-based scraping, not for exposing the port on a shared or public network.
 
 ## Testing
 

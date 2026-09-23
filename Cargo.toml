@@ -8,12 +8,15 @@ anyhow = "1.0.104"
 argon2 = "0.6.0"
 askama = "0.16.1"
 axum = { version = "0.8.9", features = ["macros"] }
+axum-prometheus = "0.10.1"
 base64 = "0.23.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 dotenvy = "0.15.7"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
 lettre = { version = "0.11.23", default-features = false, features = ["tokio1", "tokio1-rustls", "aws-lc-rs", "rustls-native-certs", "builder", "smtp-transport", "pool", "hostname"] }
+metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 rand = "0.10.3"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "form", "http2"] }

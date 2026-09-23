@@ -135,6 +135,8 @@ impl PasskeysService {
             )
             .await?
             .ok_or(PasskeyError::AlreadyRegistered)?;
+        metrics::counter!("passkey_ceremony_total", "kind" => "registration", "outcome" => "success")
+            .increment(1);
         Ok(stored.into())
     }
 
@@ -157,7 +159,11 @@ impl PasskeysService {
     }
 
     pub async fn finish_login(&self, dto: FinishLoginDto) -> AppResult<TokenResponse> {
-        let failed = || PasskeyError::AuthenticationFailed;
+        let failed = || {
+            metrics::counter!("passkey_ceremony_total", "kind" => "authentication", "outcome" => "failure")
+                .increment(1);
+            PasskeyError::AuthenticationFailed
+        };
 
         let state: DiscoverableAuthentication = self
             .claim_challenge(&dto.challenge_id, ChallengeKind::Authentication, None)
@@ -200,6 +206,8 @@ impl PasskeysService {
             return Err(PasskeyError::EmailNotVerified.into());
         }
         let access_token = jwt::issue(user.id, user.role, &self.jwt.secret, self.jwt.ttl_secs)?;
+        metrics::counter!("passkey_ceremony_total", "kind" => "authentication", "outcome" => "success")
+            .increment(1);
         Ok(TokenResponse {
             access_token,
             token_type: "Bearer",

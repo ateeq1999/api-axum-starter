@@ -41,6 +41,7 @@ impl SessionService {
             .users
             .create_with_password(&dto.email, dto.password, None, Role::User, false)
             .await?;
+        metrics::counter!("auth_register_total").increment(1);
 
         // The account exists either way; a failed verification email must not fail sign-up.
         if let Err(error) = self.email_verification.send_verification(&user).await {
@@ -50,25 +51,35 @@ impl SessionService {
     }
 
     pub async fn login(&self, dto: CredentialsDto) -> AppResult<TokenResponse> {
-        let user = self
-            .users
-            .find_by_email(&dto.email)
-            .await?
-            .ok_or(AuthError::InvalidCredentials)?;
+        let outcome = |result: bool| {
+            metrics::counter!("auth_login_total", "outcome" => if result { "success" } else { "failure" }).increment(1)
+        };
+
+        let user = match self.users.find_by_email(&dto.email).await? {
+            Some(user) => user,
+            None => {
+                outcome(false);
+                return Err(AuthError::InvalidCredentials.into());
+            }
+        };
 
         let password_ok =
             password::verify_blocking(dto.password, user.password_hash.clone()).await?;
         if !password_ok {
+            outcome(false);
             return Err(AuthError::InvalidCredentials.into());
         }
         if !user.is_active {
+            outcome(false);
             return Err(AuthError::AccountDisabled.into());
         }
         if self.require_verified_email && !user.is_email_verified() {
+            outcome(false);
             return Err(AuthError::EmailNotVerified.into());
         }
 
         let access_token = jwt::issue(user.id, user.role, &self.jwt.secret, self.jwt.ttl_secs)?;
+        outcome(true);
         Ok(TokenResponse {
             access_token,
             token_type: "Bearer",

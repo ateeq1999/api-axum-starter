@@ -163,7 +163,10 @@ async fn deliver(transport: &Transport, mail: &OutgoingMail) {
     let mut attempt = 0;
     loop {
         match transport.send(mail).await {
-            Ok(()) => return,
+            Ok(()) => {
+                metrics::counter!("mail_send_total", "outcome" => "success").increment(1);
+                return;
+            }
             Err(error) if error.is_retryable() && attempt < RETRY_DELAYS.len() => {
                 tracing::warn!(%error, attempt, recipient_domain = domain, "email delivery failed, retrying");
                 tokio::time::sleep(RETRY_DELAYS[attempt]).await;
@@ -172,6 +175,7 @@ async fn deliver(transport: &Transport, mail: &OutgoingMail) {
             Err(error) => {
                 // Never log the body: it contains a credential link.
                 tracing::error!(%error, recipient_domain = domain, "email delivery failed");
+                metrics::counter!("mail_send_total", "outcome" => "failure").increment(1);
                 return;
             }
         }
