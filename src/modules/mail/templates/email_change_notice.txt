@@ -1,4 +1,13 @@
-Email change requested
+Your account email is changing
 
-Someone asked to change the email address on your account to {{ new_email }}.
-Nothing changes until the new address is confirmed. If this was not you, change your password now.
+A request was made to change the email on your account to {{ new_email }}. The change takes effect once the new address is confirmed.
+
+SECURITY NOTICE
+If this wasn't you, reset your password right away and contact support. Nothing changes until the new address is confirmed.
+
+If you made this request, no action is needed here.
+
+--
+Starter
+You received this email because this is the current email address on your Starter account.
+Need help? Contact support@starter.example.com.

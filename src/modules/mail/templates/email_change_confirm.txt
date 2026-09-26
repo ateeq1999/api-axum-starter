@@ -1,7 +1,14 @@
-Confirm your new email address
+Confirm your new email
 
-Confirm that this address should replace the current one on your account.
+You asked to change your account email to {{ new_email }}. Confirm the change to start using this address to sign in.
 
 {{ link }}
 
-This link expires in {{ expires_in }}. If you did not expect this email you can ignore it.
+This link expires in {{ expires_in }}.
+
+If you didn't request this change, ignore this email. Your account email stays the same.
+
+--
+Starter
+You received this email because someone asked to use this address for a Starter account.
+Need help? Contact support@starter.example.com.

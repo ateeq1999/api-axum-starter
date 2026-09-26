@@ -1,7 +1,14 @@
-Confirm your email address
+Confirm your email
 
-Click the button below to confirm this email address.
+Thanks for signing up. Confirm that this is your email address to activate your account.
 
 {{ link }}
 
-This link expires in {{ expires_in }}. If you did not expect this email you can ignore it.
+This link expires in {{ expires_in }}.
+
+If you didn't create an account, you can safely ignore this email.
+
+--
+Starter
+You received this email because someone created a Starter account with this email address.
+Need help? Contact support@starter.example.com.

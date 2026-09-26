@@ -23,7 +23,7 @@ impl EmailChangeNotice<'_> {
     pub fn render(&self, to: &str) -> Result<OutgoingMail, MailError> {
         super::assemble(
             to,
-            "A change of your email address was requested",
+            "Your account email is changing",
             Text {
                 new_email: self.new_email,
             },

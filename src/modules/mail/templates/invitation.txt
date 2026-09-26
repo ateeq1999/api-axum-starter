@@ -1,7 +1,14 @@
-You have been invited
+You've been invited
 
-An account was created for you. Set a password to get started.
+You've been invited to join Starter. Accept the invitation to create your account and get started.
 
 {{ link }}
 
-This link expires in {{ expires_in }}. If you did not expect this email you can ignore it.
+This invitation expires in {{ expires_in }}.
+
+Not expecting this? You can ignore this email and no account will be created.
+
+--
+Starter
+You received this email because someone invited this address to Starter.
+Need help? Contact support@starter.example.com.

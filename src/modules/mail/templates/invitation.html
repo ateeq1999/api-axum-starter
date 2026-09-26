@@ -1,8 +1,15 @@
 {% extends "layout.html" %}
+{% import "components.html" as ui %}
+
+{% block title %}You've been invited to Starter{% endblock %}
+{% block preview_text %}Accept your invitation and set up your Starter account.{% endblock %}
+{% block footer_reason %}You received this email because someone invited this address to Starter.{% endblock %}
+
 {% block content %}
-<h2>You have been invited</h2>
-<p>An account was created for you. Set a password to get started.</p>
-<p><a href="{{ link }}" style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px;">Set your password</a></p>
-<p>Or paste this link into your browser:<br>{{ link }}</p>
-<p>This link expires in {{ expires_in }}.</p>
+<h1 style="margin: 0 0 16px 0; font-size: 24px; line-height: 32px; font-weight: 700; color: #1C1917;">You've been invited</h1>
+<p style="margin: 0 0 16px 0; font-size: 16px; line-height: 26px; color: #1C1917;">You've been invited to join Starter. Accept the invitation to create your account and get started.</p>
+{{ ui::button(link, "Accept invitation") }}
+<p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #57534E;">This invitation expires in {{ expires_in }}.</p>
+{{ ui::link_fallback(link) }}
+<p style="margin: 0; font-size: 14px; line-height: 22px; color: #57534E;">Not expecting this? You can ignore this email and no account will be created.</p>
 {% endblock %}

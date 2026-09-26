@@ -1,8 +1,15 @@
 {% extends "layout.html" %}
+{% import "components.html" as ui %}
+
+{% block title %}Confirm your new email address{% endblock %}
+{% block preview_text %}One step left: confirm {{ new_email }} as your Starter sign-in email.{% endblock %}
+{% block footer_reason %}You received this email because someone asked to use this address for a Starter account.{% endblock %}
+
 {% block content %}
-<h2>Confirm your new email address</h2>
-<p>Confirm that this address should replace the current one on your account.</p>
-<p><a href="{{ link }}" style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px;">Confirm new email</a></p>
-<p>Or paste this link into your browser:<br>{{ link }}</p>
-<p>This link expires in {{ expires_in }}.</p>
+<h1 style="margin: 0 0 16px 0; font-size: 24px; line-height: 32px; font-weight: 700; color: #1C1917;">Confirm your new email</h1>
+<p style="margin: 0 0 16px 0; font-size: 16px; line-height: 26px; color: #1C1917;">You asked to change your account email to <strong>{{ new_email }}</strong>. Confirm the change to start using this address to sign in.</p>
+{{ ui::button(link, "Confirm new email") }}
+<p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #57534E;">This link expires in {{ expires_in }}.</p>
+{{ ui::link_fallback(link) }}
+<p style="margin: 0; font-size: 14px; line-height: 22px; color: #57534E;">If you didn't request this change, ignore this email. Your account email stays the same.</p>
 {% endblock %}

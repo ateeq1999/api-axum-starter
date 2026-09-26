@@ -1,6 +1,13 @@
 {% extends "layout.html" %}
+{% import "components.html" as ui %}
+
+{% block title %}Your account email is changing{% endblock %}
+{% block preview_text %}A request was made to change your Starter email to {{ new_email }}.{% endblock %}
+{% block footer_reason %}You received this email because this is the current email address on your Starter account.{% endblock %}
+
 {% block content %}
-<h2>Email change requested</h2>
-<p>Someone asked to change the email address on your account to <strong>{{ new_email }}</strong>.</p>
-<p>Nothing changes until the new address is confirmed. If this was not you, change your password now.</p>
+<h1 style="margin: 0 0 16px 0; font-size: 24px; line-height: 32px; font-weight: 700; color: #1C1917;">Your account email is changing</h1>
+<p style="margin: 0 0 16px 0; font-size: 16px; line-height: 26px; color: #1C1917;">A request was made to change the email on your account to <strong>{{ new_email }}</strong>. The change takes effect once the new address is confirmed.</p>
+{{ ui::security_notice("If this wasn't you, reset your password right away and contact support. Nothing changes until the new address is confirmed.") }}
+<p style="margin: 0; font-size: 14px; line-height: 22px; color: #57534E;">If you made this request, no action is needed here.</p>
 {% endblock %}

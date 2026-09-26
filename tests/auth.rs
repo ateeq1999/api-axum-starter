@@ -407,7 +407,7 @@ async fn email_change_flow() {
     let old_mails = app.mails_to("jack@example.com").await;
     assert_eq!(
         old_mails.last().unwrap().subject,
-        "A change of your email address was requested"
+        "Your account email is changing"
     );
 
     let (status, _) = app
@@ -479,7 +479,7 @@ async fn admin_invitation_lets_the_invitee_choose_a_password() {
 
     let mails = app.mails_to("new.hire@example.com").await;
     assert_eq!(mails.len(), 1);
-    assert_eq!(mails[0].subject, "You have been invited");
+    assert_eq!(mails[0].subject, "You've been invited to Starter");
 
     let (status, _) = app
         .post(

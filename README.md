@@ -386,7 +386,7 @@ Axum extractors play the role of guards and pipes: `AuthUser` and `AdminUser` ar
 4. Nest its router in `modules/mod.rs`.
 5. Annotate handlers with `#[utoipa::path(...)]` and DTOs with `#[derive(ToSchema)]`, then list them in `infra/openapi.rs`'s `ApiDoc` so they show up at `/docs`.
 
-New emails: add a struct in `modules/mail/messages/`, a `<name>.html` and `<name>.txt` in `modules/mail/templates/`, and a `send_<name>` method on `MailService`.
+New emails: add a struct in `modules/mail/messages/`, a `<name>.html` (extend `layout.html`, use the `components.html` macros; see [Email design](#email-design)) and a `<name>.txt` in `modules/mail/templates/`, and a `send_<name>` method on `MailService`.
 
 ## How the account flows work
 
@@ -419,6 +419,14 @@ Every JWT carries the user's `token_version`, checked live against the database 
 Every email is also persisted to `outbound_mail` before the send is attempted (`MailService::with_durable_outbox`, wired up for the real service only — never for the in-memory test transport) and removed once it succeeds. A row still `pending` at the next startup means the process crashed between rendering and sending; it is resent automatically in the background as soon as the process starts (concurrently with, not blocking, the server accepting requests). A permanently failed send is kept as `dead` for a month (pruned by the same cleanup job as the job queue) rather than deleted, so a real delivery failure stays inspectable.
 
 To use your SMTP server, set `MAIL_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `MAIL_FROM` and, if required, `SMTP_USERNAME`/`SMTP_PASSWORD`. TLS uses the system trust store; for a private CA set `SSL_CERT_FILE`, or use `SMTP_TLS=none` on a private Docker network. For mail to reach inboxes, the sending domain needs SPF, DKIM and DMARC records.
+
+### Email design
+
+Every email shares one layout, `modules/mail/templates/layout.html` (logo, 600 px card, footer), and one set of building blocks, `components.html` (`button`, `link_fallback`, `security_notice`). Each email is a small `<name>.html` that extends the layout and fills three blocks (`title`, `preview_text`, `footer_reason`) plus `content`, next to a plain-text `<name>.txt`. The design comes from `Starter Logo and UI.html` (colours, type scale, logo mark, button and notice styles).
+
+The templates are email-safe on purpose: table layout, inline styles, no `flex`/`grid`, no inline SVG (the logo mark is built from table cells), because Gmail and Outlook strip or ignore all of those. The one `<style>` block only adds narrow-screen padding and link hover. Values from Rust are HTML-escaped by askama.
+
+Rebranding: the app name "Starter" and the support address live in `layout.html` and in the copy of each email; the accent colour (`#B4400F`) is in `components.html`. To preview, run the API with Mailpit (below) and trigger the flow, or open Mailpit's HTML view.
 
 To catch mail locally instead of sending it:
 

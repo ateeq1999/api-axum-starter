@@ -1,9 +1,86 @@
 <!doctype html>
-<html>
-  <body style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; color: #222;">
-    {% block content %}{% endblock %}
-    <p style="color: #888; font-size: 12px; margin-top: 32px;">
-      You received this email because of activity on your account. If this was not you, you can ignore it.
-    </p>
+{#- Shared shell for every email. Table-based with inline styles, because Gmail and Outlook ignore
+    flex/grid, external CSS and most <style> rules. The only <style> block is progressive
+    enhancement (narrow screens, link hover). Design source: "Starter Logo and UI.html".
+
+    Rebranding: the app name "Starter" and the support address live in this file (header and
+    footer) and in the copy of each email; the accent colour lives in components.html. -#}
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="x-apple-disable-message-reformatting">
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+    <title>{% block title %}Starter{% endblock %}</title>
+    <style>
+      a:hover { color: #8F330C !important; }
+      @media only screen and (max-width: 640px) {
+        .outer-padding { padding: 16px 12px 24px 12px !important; }
+        .card-padding { padding: 24px 20px !important; }
+        .container-width { width: 100% !important; }
+      }
+    </style>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #F5F5F4; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%;">
+    <div style="display: none; max-height: 0; overflow: hidden; opacity: 0; font-size: 1px; line-height: 1px; color: #F5F5F4; mso-hide: all;">
+      {%- block preview_text %}{% endblock -%}
+      &#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;
+    </div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#F5F5F4" style="background-color: #F5F5F4;">
+      <tr>
+        <td align="center" class="outer-padding" style="padding: 32px 40px 40px 40px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="container-width" style="width: 600px; max-width: 600px;">
+            <tr>
+              <td style="padding: 0 0 20px 0; font-family: 'Segoe UI', Helvetica, Arial, sans-serif;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td valign="middle" style="padding: 0 10px 0 0;">
+                      {#- The logo mark: a 32x32 square with three bars, built from table cells because
+                          inline SVG is stripped by Gmail and Outlook. Bar tints are the white bars at
+                          100%, 80% and 60% opacity blended onto #C8501E. -#}
+                      <table role="presentation" width="32" height="32" cellpadding="0" cellspacing="0" border="0" bgcolor="#C8501E" style="width: 32px; height: 32px; background-color: #C8501E;">
+                        <tr><td colspan="3" height="8" style="height: 8px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td></tr>
+                        <tr>
+                          <td width="7" height="4" style="width: 7px; height: 4px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                          <td width="18" height="4" bgcolor="#FFFFFF" style="width: 18px; height: 4px; background-color: #FFFFFF; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                          <td width="7" height="4" style="width: 7px; height: 4px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                        </tr>
+                        <tr><td colspan="3" height="2" style="height: 2px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td></tr>
+                        <tr>
+                          <td width="11" height="4" style="width: 11px; height: 4px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                          <td width="14" height="4" bgcolor="#F4DCD2" style="width: 14px; height: 4px; background-color: #F4DCD2; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                          <td width="7" height="4" style="width: 7px; height: 4px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                        </tr>
+                        <tr><td colspan="3" height="2" style="height: 2px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td></tr>
+                        <tr>
+                          <td width="7" height="4" style="width: 7px; height: 4px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                          <td width="18" height="4" bgcolor="#E9B9A5" style="width: 18px; height: 4px; background-color: #E9B9A5; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                          <td width="7" height="4" style="width: 7px; height: 4px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td>
+                        </tr>
+                        <tr><td colspan="3" height="8" style="height: 8px; font-size: 0; line-height: 0; mso-line-height-rule: exactly;">&nbsp;</td></tr>
+                      </table>
+                    </td>
+                    <td valign="middle" style="font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 20px; line-height: 28px; font-weight: 700; color: #1C1917;">Starter</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="card-padding" bgcolor="#FFFFFF" style="padding: 40px; background-color: #FFFFFF; border: 1px solid #E7E5E4; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; color: #1C1917;">
+                {% block content %}{% endblock %}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 20px 8px 0 8px; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; color: #57534E;">
+                {% block footer_reason %}{% endblock %}<br>
+                Need help? Contact <a href="mailto:support@starter.example.com" style="color: #57534E;">support@starter.example.com</a>.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>

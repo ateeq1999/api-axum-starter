@@ -1,6 +1,6 @@
 super::link_message!(
     Invitation,
-    "You have been invited",
+    "You've been invited to Starter",
     "invitation.html",
     "invitation.txt"
 );

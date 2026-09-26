@@ -1,8 +1,15 @@
 {% extends "layout.html" %}
+{% import "components.html" as ui %}
+
+{% block title %}Verify your email address{% endblock %}
+{% block preview_text %}Confirm your address to finish setting up your Starter account.{% endblock %}
+{% block footer_reason %}You received this email because someone created a Starter account with this email address.{% endblock %}
+
 {% block content %}
-<h2>Confirm your email address</h2>
-<p>Click the button below to confirm this email address.</p>
-<p><a href="{{ link }}" style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px;">Confirm email</a></p>
-<p>Or paste this link into your browser:<br>{{ link }}</p>
-<p>This link expires in {{ expires_in }}.</p>
+<h1 style="margin: 0 0 16px 0; font-size: 24px; line-height: 32px; font-weight: 700; color: #1C1917;">Confirm your email</h1>
+<p style="margin: 0 0 16px 0; font-size: 16px; line-height: 26px; color: #1C1917;">Thanks for signing up. Confirm that this is your email address to activate your account.</p>
+{{ ui::button(link, "Verify email") }}
+<p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #57534E;">This link expires in {{ expires_in }}.</p>
+{{ ui::link_fallback(link) }}
+<p style="margin: 0; font-size: 14px; line-height: 22px; color: #57534E;">If you didn't create an account, you can safely ignore this email.</p>
 {% endblock %}
