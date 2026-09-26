@@ -4,4 +4,5 @@ pub mod metrics;
 pub mod openapi;
 pub mod secrets;
 pub mod seed;
+pub mod storage;
 pub mod telemetry;

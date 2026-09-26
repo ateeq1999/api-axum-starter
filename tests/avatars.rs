@@ -175,3 +175,56 @@ async fn avatar_endpoints_are_protected_and_names_are_strict() {
         );
     }
 }
+
+/// Runs the same upload/serve/replace/remove flow with S3 as the backing store. Needs a
+/// reachable S3 (or emulator such as floci) and is skipped unless `TEST_S3_BUCKET` is set:
+///
+/// ```text
+/// AWS_ENDPOINT_URL=http://localhost:4566 AWS_DEFAULT_REGION=us-east-1 \
+/// AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test TEST_S3_BUCKET=my-bucket cargo test s3
+/// ```
+#[tokio::test]
+async fn upload_serve_replace_and_remove_with_s3_storage() {
+    let Ok(bucket) = std::env::var("TEST_S3_BUCKET") else {
+        eprintln!("skipped: set TEST_S3_BUCKET (and the AWS_* variables) to run the S3 test");
+        return;
+    };
+    let mut config = common::test_config();
+    config.storage.s3 = Some(api_starter_axum::config::S3StorageConfig {
+        bucket,
+        force_path_style: std::env::var("AWS_ENDPOINT_URL").is_ok(),
+        endpoint_url: std::env::var("AWS_ENDPOINT_URL").ok(),
+    });
+    let app = common::spawn_with(config).await;
+    let (_, token) = app.user("s3photo@example.com").await;
+
+    let first = put_avatar(&app, &token, png(640, 320)).await;
+    assert_eq!(first.status, StatusCode::OK, "{}", first.json());
+    let first_url = first.json()["avatar_url"].as_str().unwrap().to_string();
+
+    let served = app.raw(Method::GET, &first_url, &[], vec![]).await;
+    assert_eq!(served.status, StatusCode::OK);
+    assert_eq!(served.headers["content-type"], "image/jpeg");
+    let decoded = image::load_from_memory_with_format(&served.body, ImageFormat::Jpeg).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (256, 256));
+
+    let second = put_avatar(&app, &token, png(100, 100)).await.json();
+    let second_url = second["avatar_url"].as_str().unwrap().to_string();
+    assert_ne!(first_url, second_url);
+    assert_eq!(
+        app.raw(Method::GET, &first_url, &[], vec![]).await.status,
+        StatusCode::NOT_FOUND,
+        "the replaced object must be deleted from S3"
+    );
+    assert_eq!(
+        app.raw(Method::GET, &second_url, &[], vec![]).await.status,
+        StatusCode::OK
+    );
+
+    let (status, _) = app.delete("/api/v1/users/me/avatar", Some(&token)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        app.raw(Method::GET, &second_url, &[], vec![]).await.status,
+        StatusCode::NOT_FOUND
+    );
+}

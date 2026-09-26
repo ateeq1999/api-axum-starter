@@ -4,8 +4,8 @@ use api_starter_axum::{
     app::build_router,
     common::security::JwtSettings,
     config::{
-        AccountConfig, Config, FrontendConfig, MetricsConfig, OAuthConfig, QrLoginConfig,
-        SmtpConfig, SmtpTls, StorageConfig, WebauthnConfig,
+        AccountConfig, Config, FrontendConfig, MediaConfig, MetricsConfig, OAuthConfig,
+        QrLoginConfig, SmtpConfig, SmtpTls, StorageConfig, WebauthnConfig,
     },
     infra::database,
     modules::mail::{MailService, OutgoingMail},
@@ -169,6 +169,15 @@ pub fn test_config() -> Config {
         storage: StorageConfig {
             upload_dir: std::env::temp_dir()
                 .join(format!("api-starter-axum-test-{}", uuid::Uuid::new_v4())),
+            s3: None,
+        },
+        media: MediaConfig {
+            max_upload_bytes: 8 * 1024 * 1024,
+            allowed_content_types: vec![
+                "image/jpeg".into(),
+                "image/png".into(),
+                "application/pdf".into(),
+            ],
         },
         oauth: OAuthConfig {
             public_api_url: "https://api.test".into(),

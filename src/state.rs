@@ -10,12 +10,14 @@ use crate::{
         security::{ApiKeyAuth, JwtSettings, SessionAuth, password},
     },
     config::Config,
+    infra::storage::ObjectStorage,
     modules::{
         api_keys::{ApiKeysRepository, ApiKeysService},
         audit_log::{AuditLogRepository, AuditLogService},
         auth::AuthService,
         avatars::{AvatarService, AvatarStorage},
         mail::MailService,
+        media::{MediaRepository, MediaService},
         oauth::{OAuthRepository, OAuthService, ProviderClient},
         passkeys::{PasskeysRepository, PasskeysService},
         qr_login::{QrLoginService, QrRepository},
@@ -32,6 +34,8 @@ pub struct AppState {
     pub users: Arc<UsersService>,
     pub mail: Arc<MailService>,
     pub avatars: Arc<AvatarService>,
+    pub media: Arc<MediaService>,
+    pub object_storage: ObjectStorage,
     pub api_keys: Arc<ApiKeysService>,
     pub oauth: Arc<OAuthService>,
     pub passkeys: Arc<PasskeysService>,
@@ -76,9 +80,12 @@ impl AppState {
         );
         let require_verified = config.account.require_verified_email;
 
-        let avatars = AvatarService::new(
-            users.clone(),
-            AvatarStorage::new(config.storage.upload_dir.clone()).await?,
+        let object_storage = ObjectStorage::from_config(&config.storage).await?;
+        let avatars = AvatarService::new(users.clone(), AvatarStorage::new(object_storage.clone()));
+        let media = MediaService::new(
+            MediaRepository::new(db.clone()),
+            object_storage.clone(),
+            config.media.clone(),
         );
         let api_keys = Arc::new(ApiKeysService::new(
             ApiKeysRepository::new(db.clone()),
@@ -114,6 +121,8 @@ impl AppState {
             users: Arc::new(users),
             mail: Arc::new(mail),
             avatars: Arc::new(avatars),
+            media: Arc::new(media),
+            object_storage,
             api_key_auth: ApiKeyAuth(api_keys.clone()),
             session_auth,
             api_keys,

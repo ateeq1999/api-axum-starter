@@ -19,7 +19,7 @@ use crate::{
         extractors::{ValidatedJson, ValidatedQuery},
         security::{AdminUser, AuthUser},
     },
-    modules::avatars::AvatarService,
+    modules::{avatars::AvatarService, media::MediaService},
     state::AppState,
 };
 
@@ -153,10 +153,16 @@ pub(crate) async fn remove(
     AdminUser(actor): AdminUser,
     State(users): State<Arc<UsersService>>,
     State(avatars): State<Arc<AvatarService>>,
+    State(media): State<Arc<MediaService>>,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     if let Some(avatar_key) = users.delete(&actor, id).await? {
         avatars.remove_file(&avatar_key).await;
+    }
+    // The account is already gone, so a cleanup failure must not turn this into an error: the
+    // orphaned files are unreachable (their rows are deleted with the owner).
+    if let Err(error) = media.delete_all_for_user(id).await {
+        tracing::warn!(error = ?error, user_id = %id, "could not clean up a deleted user's media");
     }
     Ok(StatusCode::NO_CONTENT)
 }

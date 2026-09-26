@@ -3,7 +3,8 @@ use std::{env, fmt, net::SocketAddr, str::FromStr};
 pub mod features;
 
 pub use features::{
-    MetricsConfig, OAuthConfig, OAuthProviderConfig, QrLoginConfig, StorageConfig, WebauthnConfig,
+    MediaConfig, MetricsConfig, OAuthConfig, OAuthProviderConfig, QrLoginConfig, S3StorageConfig,
+    StorageConfig, WebauthnConfig,
 };
 
 use crate::common::security::{JwtSettings, password};
@@ -34,6 +35,7 @@ pub struct Config {
     pub account: AccountConfig,
     pub bootstrap_admin: Option<BootstrapAdmin>,
     pub storage: StorageConfig,
+    pub media: MediaConfig,
     pub oauth: OAuthConfig,
     pub webauthn: WebauthnConfig,
     pub qr_login: QrLoginConfig,
@@ -132,8 +134,10 @@ impl fmt::Debug for BootstrapAdmin {
     }
 }
 
+/// A variable that must be set. Blank counts as unset, so a bare `NAME=` left in a copied
+/// `.env.example` fails fast as "missing" instead of running with an empty value.
 fn required(name: &'static str) -> Result<String, ConfigError> {
-    env::var(name).map_err(|_| ConfigError::Missing(name))
+    non_empty(name).ok_or(ConfigError::Missing(name))
 }
 
 pub(crate) fn non_empty(name: &'static str) -> Option<String> {
@@ -153,17 +157,19 @@ fn parse_cors_allowed_origins(frontend_url: &str) -> Vec<String> {
     }
 }
 
+/// A variable with a default. Unset and blank both mean "use the default", so every line of
+/// `.env.example` can be uncommented and left empty without changing behavior.
 pub(crate) fn optional<T>(name: &'static str, default: T) -> Result<T, ConfigError>
 where
     T: FromStr,
     T::Err: fmt::Display,
 {
-    match env::var(name) {
-        Ok(raw) => raw.parse().map_err(|e: T::Err| ConfigError::Invalid {
+    match non_empty(name) {
+        Some(raw) => raw.parse().map_err(|e: T::Err| ConfigError::Invalid {
             name,
             reason: e.to_string(),
         }),
-        Err(_) => Ok(default),
+        None => Ok(default),
     }
 }
 
@@ -230,13 +236,14 @@ impl Config {
         };
         let webauthn = WebauthnConfig::from_env(&frontend.url)?;
         let cors_allowed_origins = parse_cors_allowed_origins(&frontend.url);
+        let max_request_body_bytes: usize = optional("MAX_REQUEST_BODY_BYTES", 10 * 1024 * 1024)?;
 
         Ok(Self {
             database_url: required("DATABASE_URL")?,
             database_max_connections: optional("DATABASE_MAX_CONNECTIONS", 10)?,
             bind_addr,
             cors_allowed_origins,
-            max_request_body_bytes: optional("MAX_REQUEST_BODY_BYTES", 10 * 1024 * 1024)?,
+            max_request_body_bytes,
             jwt: JwtSettings {
                 secret: jwt_secret,
                 ttl_secs: optional("JWT_TTL_SECS", 3600)?,
@@ -257,6 +264,7 @@ impl Config {
             },
             bootstrap_admin,
             storage: StorageConfig::from_env()?,
+            media: MediaConfig::from_env(max_request_body_bytes)?,
             oauth: OAuthConfig::from_env(bind_addr)?,
             webauthn,
             qr_login: QrLoginConfig::from_env()?,

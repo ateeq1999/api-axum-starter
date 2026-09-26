@@ -1,6 +1,6 @@
 # api-starter-axum
 
-A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos, Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in, TOTP two-factor authentication, API keys, an admin-readable audit log, a durable Postgres-backed background job queue, Prometheus metrics, and interactive API docs (Swagger UI).
+A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL (sqlx) and JWT auth. It ships with user management, password reset, email verification and email change (mail through an SMTP server), profile photos and general media uploads (local disk or S3), Google and GitHub sign-in, passkeys (WebAuthn), WhatsApp-style QR-code sign-in, TOTP two-factor authentication, API keys, an admin-readable audit log, a durable Postgres-backed background job queue, Prometheus metrics, and interactive API docs (Swagger UI).
 
 Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 
@@ -95,7 +95,7 @@ Development only: never run it against a production database. To change the data
 
 ## Configuration
 
-All configuration is environment variables (a `.env` file is loaded if present; real environment variables win). The app fails fast at startup on missing or invalid values. Grouped here the same way as `.env.example`.
+All configuration is environment variables (a `.env` file is loaded if present; real environment variables win). The app fails fast at startup on missing or invalid values. Grouped here the same way as `.env.example`, where every variable is a live line: copy the file to `.env` and fill in values. A **blank** value counts as unset (the default applies, or the optional feature stays off), so unused lines can stay empty. `DATABASE_URL` and `JWT_SECRET` are the only ones the app cannot start without (`cargo run -- setup` generates the secret for you).
 
 ### Core & server
 
@@ -144,11 +144,15 @@ All configuration is environment variables (a `.env` file is loaded if present; 
 |---|---|---|
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | unset | Bootstrap administrator (set both or neither) |
 
-### Profile photos
+### File storage (uploads)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `UPLOAD_DIR` | `./uploads` | Where profile photos are stored |
+| `UPLOAD_DIR` | `./uploads` | Local-disk root for every upload (profile photos and media). Ignored when `S3_BUCKET` is set |
+| `S3_BUCKET` | unset | Store uploads in this S3 bucket instead of local disk (keys: `avatars/...`, `media/...`). Credentials, region and endpoint come from the standard `AWS_*` variables (or an EC2 instance role); the bucket is checked at startup |
+| `S3_FORCE_PATH_STYLE` | on if `AWS_ENDPOINT_URL` is set | `endpoint/bucket/key` addressing, needed by local emulators (floci, LocalStack, MinIO) |
+| `MEDIA_MAX_UPLOAD_BYTES` | `8388608` (8 MiB) | Largest single media upload. Must not exceed `MAX_REQUEST_BODY_BYTES` |
+| `MEDIA_ALLOWED_CONTENT_TYPES` | jpeg, png, gif, webp, pdf, mp4, webm, mp3, ogg | Comma-separated content types users may upload, matched against the file's real bytes. SVG and HTML are deliberately absent |
 
 ### OAuth sign-in
 
@@ -237,6 +241,33 @@ Rules enforced: an admin cannot demote, deactivate or delete themself, and the l
 | DELETE | `/users/me/avatar` | authenticated | Remove the photo |
 | GET | `/avatars/{file}` | public | The image (`avatar_url` points here). Cacheable for a year: the name changes on every upload |
 
+### Media (`/media`)
+
+General file uploads for any user: images, PDFs, short audio/video. Files are stored through the shared `ObjectStorage` service (`infra/storage.rs`), the same one profile photos use.
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/` | authenticated | Body: the raw file bytes; optional `?filename=`. Returns `201` with `{id, content_type, size_bytes, original_filename, url, created_at}` |
+| GET | `/` | authenticated | Your files, newest first. Query: `page`, `per_page` |
+| GET | `/{id}` | owner or admin | Metadata |
+| GET | `/{id}/content` | owner or admin | The file itself |
+| DELETE | `/{id}` | owner or admin | Delete the file and its stored object, `204` |
+
+Uploads are untrusted content served from the API's own origin, so:
+
+- The type is **detected from the bytes** (magic numbers) and checked against `MEDIA_ALLOWED_CONTENT_TYPES`; the client's `Content-Type` is ignored. An unrecognized or disallowed type is `415`, an oversized file `413`, an empty body `400`.
+- Only images, video and audio are shown inline; everything else (PDFs, ...) is sent as a download. Every response carries `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`.
+- Files are private: another user gets `404` (existence is not leaked). Serving needs credentials, so a browser `<img>` cannot load one directly. Fetch it with the `Authorization` header and show a blob URL, or add a public variant if you need one.
+- Deleting a user account deletes their media too.
+
+Storage is local disk by default, or S3 when `S3_BUCKET` is set (uploaded with the AWS SDK, private objects, served through the API so the bucket needs no public access). To try S3 locally against an emulator such as floci:
+
+```bash
+export AWS_ENDPOINT_URL=http://localhost:4566 AWS_DEFAULT_REGION=us-east-1 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+S3_BUCKET=my-bucket cargo run                               # the bucket must already exist
+TEST_S3_BUCKET=my-bucket cargo test --test media --test avatars s3   # S3 integration tests (skipped when unset)
+```
+
 ### API keys (`/api-keys`)
 
 | Method | Path | Access | Purpose |
@@ -301,7 +332,8 @@ src/
 ├── cli/                                one file per subcommand: serve, seed, setup, generate_secrets (`gen --secrets`)
 ├── config/                             environment-driven Config
 ├── infra/                              database pool + migrations, tracing setup, jobs/ (background job queue),
-│                                        secrets.rs (.env generation), metrics.rs (Prometheus), openapi.rs (Swagger)
+│                                        secrets.rs (.env generation), metrics.rs (Prometheus), openapi.rs (Swagger),
+│                                        storage.rs (ObjectStorage: local disk or S3, shared by avatars and media)
 ├── common/                             feature-agnostic building blocks
 │   ├── error.rs                        AppError -> HTTP response
 │   ├── dto/                            Pagination, MessageResponse
@@ -316,13 +348,14 @@ src/
     ├── users/                          controller, service, policy, repository, entity, dto, error
     ├── auth/                           controllers/ (session, password, email, totp), services/, repositories/,
     │                                    dto/, helpers/, entity, error
-    ├── avatars/                        profile photos: upload processing, local storage, public serving
+    ├── avatars/                        profile photos: upload processing, public serving (stored via ObjectStorage)
+    ├── media/                          user file uploads: type detection, ownership, private serving (stored via ObjectStorage)
     ├── audit_log/                      admin action log: controller, service, repository, entity, dto
     ├── api_keys/                       hashed, scoped, revocable keys
     ├── oauth/                          Google and GitHub (PKCE, state, one-time exchange code)
     ├── passkeys/                       WebAuthn registration and usernameless sign-in
     └── qr_login/                       QR-code sign-in sessions
-migrations/                             0001 users ... 0014 TOTP (applied automatically at startup)
+migrations/                             0001 users ... 0015 media (applied automatically at startup)
 seeds/seed.sql, seeds/reset.sql         development seed data / wipe (`cargo run -- seed [--fresh]`)
 tests/                                  integration tests (see Testing)
 Dockerfile, .dockerignore               multi-stage build for the API image
@@ -348,7 +381,7 @@ Axum extractors play the role of guards and pipes: `AuthUser` and `AdminUser` ar
 ### Adding a feature
 
 1. Create `modules/<name>/` with `mod.rs`, `controller.rs`, `service.rs`, `repository.rs`, `entity.rs`, `dto/`, `error.rs` (`impl From<YourError> for AppError`).
-2. Add the migration under `migrations/` (`0015_<name>.sql`).
+2. Add the migration under `migrations/` (`0016_<name>.sql`).
 3. Build the service in `AppState::with_mail` (`state.rs`) and add it as an `Arc<YourService>` field; `#[derive(FromRef)]` lets handlers take `State<Arc<YourService>>`. Keep every `AppState` field a cheap handle (`Arc`, pool): axum clones the state on every request, so a `String` or `Vec` field would be copied each time.
 4. Nest its router in `modules/mod.rs`.
 5. Annotate handlers with `#[utoipa::path(...)]` and DTOs with `#[derive(ToSchema)]`, then list them in `infra/openapi.rs`'s `ApiDoc` so they show up at `/docs`.
@@ -435,7 +468,7 @@ cargo clippy --all-targets
 ```
 
 - Unit tests sit next to the code (token hashing, policy rules, pagination, rate limiter, password strength, TOTP, recovery codes, templates, ...).
-- `tests/*.rs` drive the full router in-process against a fresh, throwaway Postgres database created per test (see `tests/common/mod.rs`; needs `TEST_DATABASE_URL` or a local Postgres on `localhost:5432` with the default `postgres`/`postgres` credentials), with an in-memory mail transport so tests can read the emailed links: `auth` (including account lockout), `totp` (full 2FA enroll/login/recovery-code flow), `audit_log`, `users` (including a real concurrent race for the last-admin guard), `avatars`, `api_keys`, `oauth` (against a fake Google/GitHub server), `passkeys` (a software authenticator performs the real WebAuthn ceremonies), `qr_login`, `jobs`, `seed`.
+- `tests/*.rs` drive the full router in-process against a fresh, throwaway Postgres database created per test (see `tests/common/mod.rs`; needs `TEST_DATABASE_URL` or a local Postgres on `localhost:5432` with the default `postgres`/`postgres` credentials), with an in-memory mail transport so tests can read the emailed links: `auth` (including account lockout), `totp` (full 2FA enroll/login/recovery-code flow), `audit_log`, `users` (including a real concurrent race for the last-admin guard), `avatars`, `media` (upload/type-detection/privacy/cleanup rules), `api_keys`, `oauth` (against a fake Google/GitHub server), `passkeys` (a software authenticator performs the real WebAuthn ceremonies), `qr_login`, `jobs`, `seed`.
 - `tests/mail_smtp.rs` runs the real SMTP transport against a small fake SMTP server, including recovering an email left `pending` by a simulated crash.
 
 ## Known limits
@@ -444,7 +477,8 @@ Deliberate scope boundaries for a starter, not oversights:
 
 - Soft delete rewrites the user's email to `deleted+<id>@deleted.invalid` so the address can be registered again — by design.
 - Password hashing is capped at `MAX_CONCURRENT_HASHES` at a time (default 8), so a burst of logins queues instead of allocating 19 MiB each. Under a burst, requests wait for a free slot; the 10 s request timeout still applies.
-- The rate limiter and profile photo storage (`UPLOAD_DIR`, local disk) are both per-replica/single-host. Sharing either across several API replicas needs an external dependency (Redis; an S3-compatible store) this starter deliberately does not bundle by default — swap `AvatarStorage` for an S3-backed implementation of the same small trait if you need that, rather than adopting one you may not.
+- The rate limiter is per-replica, and uploads (profile photos and media) default to local disk (`UPLOAD_DIR`), which is single-host. Set `S3_BUCKET` so several API replicas can share them. Sharing the rate limiter across replicas needs an external store (Redis) this starter deliberately does not bundle.
+- Media is buffered in memory on upload and download (at most `MEDIA_MAX_UPLOAD_BYTES`, 8 MiB by default), and there is no range-request support, no per-user quota and no virus scanning. That suits images, documents and short clips; large video needs presigned S3 URLs or multipart uploads, which this starter does not include.
 - Passkeys are usernameless (discoverable) only. Hardware keys that create non-discoverable credentials cannot sign in, and the passkey flow is verified with a software authenticator in tests, not with every browser and device.
 - QR login's residual risk (a user approving a login they did not start) is inherent to the UX pattern itself (the same risk WhatsApp Web has); the verification code and requester display reduce, not remove, it.
 - Passkeys need OpenSSL at build and run time (see steps.md) — a transitive dependency of `webauthn-rs`.

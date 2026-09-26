@@ -1,24 +1,22 @@
-use std::{io::ErrorKind, path::PathBuf};
-
 use uuid::Uuid;
 
 use super::error::AvatarError;
-use crate::common::error::AppResult;
+use crate::{common::error::AppResult, infra::storage::ObjectStorage};
 
-/// Stores avatar files on local disk under `<upload_dir>/avatars`.
+const KEY_PREFIX: &str = "avatars/";
+
+/// Profile photos, kept under the `avatars/` prefix of the shared [`ObjectStorage`].
 ///
 /// File names are generated here (`<uuid>.jpg`) and looked up with strict validation, so a
-/// request can never name a path outside the directory.
+/// request can never name a key outside the avatars area.
 #[derive(Clone)]
 pub struct AvatarStorage {
-    dir: PathBuf,
+    objects: ObjectStorage,
 }
 
 impl AvatarStorage {
-    pub async fn new(upload_dir: PathBuf) -> anyhow::Result<Self> {
-        let dir = upload_dir.join("avatars");
-        tokio::fs::create_dir_all(&dir).await?;
-        Ok(Self { dir })
+    pub fn new(objects: ObjectStorage) -> Self {
+        Self { objects }
     }
 
     /// A fresh unguessable name. It changes on every upload, which is what lets the browser
@@ -37,37 +35,25 @@ impl AvatarStorage {
 
     pub async fn write(&self, name: &str, bytes: &[u8]) -> AppResult<()> {
         debug_assert!(Self::is_valid_name(name));
-        // Write then rename, so a reader never sees a half-written file.
-        let temp = self.dir.join(format!("{name}.tmp"));
-        tokio::fs::write(&temp, bytes)
+        self.objects
+            .put(&format!("{KEY_PREFIX}{name}"), bytes.to_vec(), "image/jpeg")
             .await
-            .map_err(|e| anyhow::anyhow!("writing avatar: {e}"))?;
-        tokio::fs::rename(&temp, self.dir.join(name))
-            .await
-            .map_err(|e| anyhow::anyhow!("storing avatar: {e}"))?;
-        Ok(())
     }
 
     pub async fn read(&self, name: &str) -> AppResult<Vec<u8>> {
         if !Self::is_valid_name(name) {
             return Err(AvatarError::NotFound.into());
         }
-        match tokio::fs::read(self.dir.join(name)).await {
-            Ok(bytes) => Ok(bytes),
-            Err(e) if e.kind() == ErrorKind::NotFound => Err(AvatarError::NotFound.into()),
-            Err(e) => Err(anyhow::anyhow!("reading avatar: {e}").into()),
-        }
+        self.objects
+            .get(&format!("{KEY_PREFIX}{name}"))
+            .await?
+            .ok_or_else(|| AvatarError::NotFound.into())
     }
 
     /// Best effort: an orphaned file is harmless, so failures are only logged.
     pub async fn remove(&self, name: &str) {
-        if !Self::is_valid_name(name) {
-            return;
-        }
-        if let Err(e) = tokio::fs::remove_file(self.dir.join(name)).await
-            && e.kind() != ErrorKind::NotFound
-        {
-            tracing::warn!(error = %e, file = name, "could not delete old avatar");
+        if Self::is_valid_name(name) {
+            self.objects.delete(&format!("{KEY_PREFIX}{name}")).await;
         }
     }
 }

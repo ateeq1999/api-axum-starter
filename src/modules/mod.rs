@@ -4,6 +4,7 @@ pub mod auth;
 pub mod avatars;
 pub mod health;
 pub mod mail;
+pub mod media;
 pub mod oauth;
 pub mod passkeys;
 pub mod qr_login;
@@ -34,6 +35,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .nest("/users", users::router())
         .nest("/users/me/avatar", avatars::own_router())
         .nest("/avatars", avatars::public_router())
+        .nest("/media", media::router())
         .nest("/api-keys", api_keys::router())
         .nest("/audit-log", audit_log::router())
 }

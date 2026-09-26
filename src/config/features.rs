@@ -6,14 +6,44 @@ use super::{ConfigError, non_empty, optional};
 
 #[derive(Debug, Clone)]
 pub struct StorageConfig {
-    /// Where profile photos are stored (created at startup).
+    /// Where profile photos are stored on local disk (created at startup). Ignored when
+    /// `s3` is set.
     pub upload_dir: PathBuf,
+    /// When set, uploads go to this S3 bucket instead of local disk.
+    pub s3: Option<S3StorageConfig>,
+}
+
+/// S3 credentials, region and (for emulators) endpoint come from the standard AWS
+/// environment variables (`AWS_ACCESS_KEY_ID`, `AWS_REGION`, `AWS_ENDPOINT_URL`, ...), or an
+/// instance role on EC2, which the AWS SDK resolves itself.
+#[derive(Debug, Clone)]
+pub struct S3StorageConfig {
+    pub bucket: String,
+    /// `endpoint/bucket/key` addressing instead of `bucket.endpoint/key`. Local S3 emulators
+    /// (floci, LocalStack, MinIO) need it, so it defaults to on whenever `AWS_ENDPOINT_URL`
+    /// points somewhere other than real AWS.
+    pub force_path_style: bool,
+    /// `AWS_ENDPOINT_URL` when set and non-blank (a local emulator). Passed to the SDK explicitly
+    /// so a blank value in `.env` means "real AWS" instead of an invalid endpoint.
+    pub endpoint_url: Option<String>,
 }
 
 impl StorageConfig {
     pub(super) fn from_env() -> Result<Self, ConfigError> {
+        let s3 = match non_empty("S3_BUCKET") {
+            Some(bucket) => Some(S3StorageConfig {
+                bucket,
+                force_path_style: optional(
+                    "S3_FORCE_PATH_STYLE",
+                    non_empty("AWS_ENDPOINT_URL").is_some(),
+                )?,
+                endpoint_url: non_empty("AWS_ENDPOINT_URL"),
+            }),
+            None => None,
+        };
         Ok(Self {
             upload_dir: optional("UPLOAD_DIR", PathBuf::from("./uploads"))?,
+            s3,
         })
     }
 }
@@ -189,6 +219,46 @@ impl QrLoginConfig {
         Ok(Self {
             ttl_secs,
             poll_rate_limit_per_minute: optional("QR_POLL_RATE_LIMIT_PER_MINUTE", 120)?,
+        })
+    }
+}
+
+/// Limits for user-uploaded media (`/media`).
+#[derive(Debug, Clone)]
+pub struct MediaConfig {
+    /// Largest single upload accepted. Must not exceed `MAX_REQUEST_BODY_BYTES`.
+    pub max_upload_bytes: usize,
+    /// Content types a user may upload. Checked against the file's actual bytes (magic
+    /// numbers), never against the client-declared `Content-Type`. Types that browsers execute
+    /// or render actively (HTML, SVG, scripts) are deliberately absent from the default list.
+    pub allowed_content_types: Vec<String>,
+}
+
+const DEFAULT_ALLOWED_MEDIA_TYPES: &str = "image/jpeg,image/png,image/gif,image/webp,\
+    application/pdf,video/mp4,video/webm,audio/mpeg,audio/ogg";
+
+impl MediaConfig {
+    pub(super) fn from_env(max_request_body_bytes: usize) -> Result<Self, ConfigError> {
+        let max_upload_bytes: usize = optional("MEDIA_MAX_UPLOAD_BYTES", 8 * 1024 * 1024)?;
+        if max_upload_bytes > max_request_body_bytes {
+            return Err(ConfigError::Invalid {
+                name: "MEDIA_MAX_UPLOAD_BYTES",
+                reason: format!(
+                    "{max_upload_bytes} exceeds MAX_REQUEST_BODY_BYTES ({max_request_body_bytes}), \
+                     so uploads that large would be rejected before reaching the media handler"
+                ),
+            });
+        }
+        let raw_types = non_empty("MEDIA_ALLOWED_CONTENT_TYPES")
+            .unwrap_or_else(|| DEFAULT_ALLOWED_MEDIA_TYPES.to_string());
+        let allowed_content_types = raw_types
+            .split(',')
+            .map(|content_type| content_type.trim().to_ascii_lowercase())
+            .filter(|content_type| !content_type.is_empty())
+            .collect();
+        Ok(Self {
+            max_upload_bytes,
+            allowed_content_types,
         })
     }
 }

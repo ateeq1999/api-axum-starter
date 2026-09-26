@@ -21,6 +21,8 @@ pub enum AppError {
     TooManyRequests,
     #[error("{0}")]
     PayloadTooLarge(String),
+    #[error("{0}")]
+    UnsupportedMediaType(String),
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
     #[error("database error")]
@@ -52,6 +54,9 @@ impl AppError {
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
             Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
+            Self::UnsupportedMediaType(_) => {
+                (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type")
+            }
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::Database(_) | Self::Internal(_) => {
