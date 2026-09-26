@@ -5,6 +5,8 @@ infrastructure spend. It is written for a single low-traffic deployment (a perso
 demo, or small starter), not a highly-available production fleet — see [Known limits and
 tradeoffs](#known-limits-and-tradeoffs) for what you are deliberately giving up.
 
+To try the same shape locally first, [infra/terraform/](infra/terraform/README.md) deploys the stack to the floci AWS emulator with one command.
+
 - [Assumptions](#assumptions)
 - [Budget](#budget)
 - [Architecture](#architecture)

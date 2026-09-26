@@ -359,6 +359,7 @@ migrations/                             0001 users ... 0015 media (applied autom
 seeds/seed.sql, seeds/reset.sql         development seed data / wipe (`cargo run -- seed [--fresh]`)
 tests/                                  integration tests (see Testing)
 Dockerfile, .dockerignore               multi-stage build for the API image
+infra/terraform/                        Terraform for floci: ECR, ECS, RDS, S3, secrets, IAM (deploy.sh, tf.sh)
 .github/workflows/ci.yml                fmt/clippy/test on every push and PR, plus a dependency audit job
 ```
 
@@ -467,6 +468,7 @@ docker compose -f docker-compose.monitoring.yml up -d
 
 - `Dockerfile`: multi-stage build (`cargo build --release` in a `rust:slim` image, running in `debian:bookworm-slim`). Migrations are compiled into the binary, so the runtime image needs nothing from `migrations/`.
 - `.github/workflows/ci.yml`: on every push/PR, runs `cargo fmt --check`, `cargo clippy -- -D warnings` and the full test suite against a Postgres service container, plus a separate job auditing dependencies against the RustSec advisory database (`rustsec/audit-check`).
+- `infra/terraform/`: deploys the whole stack (ECR, ECS, RDS Postgres, S3, Secrets Manager, IAM) to the local floci AWS emulator with one command, `./deploy.sh`. See [infra/terraform/README.md](infra/terraform/README.md). For real AWS on a small budget, see [deploy.md](deploy.md).
 
 ## Testing
 

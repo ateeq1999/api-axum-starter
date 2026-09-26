@@ -4,3 +4,7 @@ uploads/
 .git/
 .github/
 *.md
+*.pem
+/*.html
+infra/
+.terraform/
