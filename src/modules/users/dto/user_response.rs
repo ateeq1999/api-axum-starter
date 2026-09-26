@@ -17,6 +17,8 @@ pub struct UserResponse {
     pub avatar_url: Option<String>,
     /// `false` for accounts created through OAuth that never chose a password.
     pub has_password: bool,
+    /// Whether two-factor authentication (TOTP) is turned on for this account.
+    pub totp_enabled: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -26,6 +28,7 @@ impl From<User> for UserResponse {
             email_verified: u.is_email_verified(),
             avatar_url: u.avatar_key.as_deref().map(avatar_url),
             has_password: u.password_set,
+            totp_enabled: u.totp_enabled,
             id: u.id,
             email: u.email,
             display_name: u.display_name,
