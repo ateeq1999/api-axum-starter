@@ -325,7 +325,7 @@ Health checks: `GET /health/live` and `GET /health/ready` (checks the database).
 
 ## Project layout
 
-Each feature is a folder under `modules/` and owns its controller, service, repository, DTOs and errors. The folder names the feature and the file names the role, so `modules/auth/services/password_reset.rs` reads as "auth service: password reset". A role is one file while it has one thing in it, and becomes a folder once it has two or more.
+Each feature is a folder under `modules/` and owns its controller, service, repository, DTOs and errors. The folder names the feature and the file names the role, so `modules/auth/services/password_reset.rs` reads as "auth service: password reset". A role is one file while it has one thing in it, and becomes a folder once it has two or more: then each file holds one use case (`users/services/delete_user.rs`, `users/controllers/delete_user.rs`) or one responsibility (`users/repositories/credentials.rs`). The files add `impl` blocks to the same `UsersService` / `UsersRepository` type, so callers still see one type and nothing else changes.
 
 ```
 src/
@@ -347,7 +347,7 @@ src/
 └── modules/
     ├── health/
     ├── mail/                           no HTTP; MailService, SMTP transport, durable outbox, messages/, templates/
-    ├── users/                          controller, service, policy, repository, entity, dto, error
+    ├── users/                          controllers/, services/, repositories/ (one file per use case), dto/, policy, entity, error
     ├── auth/                           controllers/ (session, password, email, totp), services/, repositories/,
     │                                    dto/, helpers/, entity, error
     ├── avatars/                        profile photos: upload processing, public serving (stored via ObjectStorage)

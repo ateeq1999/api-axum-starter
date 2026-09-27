@@ -30,13 +30,13 @@ use utoipa::{
         crate::modules::auth::controllers::totp::enable,
         crate::modules::auth::controllers::totp::disable,
         crate::modules::auth::controllers::totp::verify,
-        crate::modules::users::controller::list,
-        crate::modules::users::controller::create,
-        crate::modules::users::controller::me,
-        crate::modules::users::controller::update_me,
-        crate::modules::users::controller::get_one,
-        crate::modules::users::controller::update,
-        crate::modules::users::controller::remove,
+        crate::modules::users::controllers::list_users::list,
+        crate::modules::users::controllers::create_user::create,
+        crate::modules::users::controllers::get_current_user::me,
+        crate::modules::users::controllers::update_profile::update_me,
+        crate::modules::users::controllers::get_user::get_one,
+        crate::modules::users::controllers::update_user::update,
+        crate::modules::users::controllers::delete_user::remove,
         crate::modules::avatars::controller::upload,
         crate::modules::avatars::controller::remove,
         crate::modules::avatars::controller::serve,
@@ -147,4 +147,9 @@ impl Modify for BearerAuthAddon {
             ),
         );
     }
+}
+
+/// The complete OpenAPI document served at `/api-docs/openapi.json`.
+pub fn document() -> utoipa::openapi::OpenApi {
+    ApiDoc::openapi()
 }
