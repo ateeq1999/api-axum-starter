@@ -8,3 +8,5 @@ uploads/
 /*.html
 infra/
 .terraform/
+deploy/
+docs/
