@@ -107,7 +107,8 @@ The app reads a generated `.env` (mode 600). Notable values beyond the defaults 
 | `BIND_ADDR` | `0.0.0.0:3000` | Caddy reaches the app over Docker's network |
 | `TRUST_PROXY_HEADERS` | `true` | Exactly one trusted proxy (Caddy) in front, so rate limiting sees real client IPs |
 | `CORS_ALLOWED_ORIGINS` | the deployed frontend (Vercel), `http://localhost:3001` for local frontend development, and the API host (Swagger UI) | Only these browser origins may call the API |
-| `FRONTEND_URL`, `PUBLIC_API_URL` | the sslip.io URL | Links in emails and OAuth redirects; point `FRONTEND_URL` at the frontend when it handles those pages |
+| `FRONTEND_URL` | the deployed frontend (Vercel) | Emailed links (`/reset-password`, `/verify-email`, `/confirm-email-change`), the OAuth hand-back (`/oauth/callback`) and the passkey relying party |
+| `PUBLIC_API_URL` | the sslip.io URL | OAuth redirect URIs registered with Google and GitHub point at the API |
 | `S3_BUCKET`, `AWS_*` | the bucket and the app user's key | Lightsail has no instance roles |
 | `SMTP_*`, `MAIL_FROM` | SES SMTP endpoint, key-derived SMTP password | Email |
 | `MAX_CONCURRENT_HASHES` | `4` | Each argon2 hash takes ~19 MB; bounded for 1 GB |

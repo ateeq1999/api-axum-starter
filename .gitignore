@@ -8,4 +8,4 @@
 /uploads
 *.pem
 # Production deployment: local only (contains Terraform state, keys and secrets)
-/deploy/aws-production/
+/deploy
