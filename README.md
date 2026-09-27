@@ -346,13 +346,14 @@ src/
 │   └── middleware/                     request id, tracing, rate limiter, global layer stack (CORS, body limit, ...)
 └── modules/
     ├── health/
-    ├── mail/                           no HTTP; MailService, SMTP transport, durable outbox, messages/, templates/
-    ├── users/                          controllers/, services/, repositories/ (one file per use case), dto/, policy, entity, error
-    ├── auth/                           controllers/ (session, password, email, totp), services/, repositories/,
-    │                                    dto/, helpers/, entity, error
+    ├── mail/                           no HTTP; service/ (delivery in mod.rs, senders.rs), SMTP transport,
+    │                                    durable outbox, messages/, templates/
+    ├── users/                          controllers/, services/, repositories/, dto/, policy, entity, error
+    ├── auth/                           controllers/ (one per endpoint), services/ (session/, password_reset/,
+    │                                    email_verification/, totp/: one file per action), repositories/, dto/, helpers/
     ├── avatars/                        profile photos: upload processing, public serving (stored via ObjectStorage)
     ├── media/                          user file uploads: type detection, ownership, private serving (stored via ObjectStorage)
-    ├── audit_log/                      admin action log: controller, service, repository, entity, dto
+    ├── audit_log/                      admin action log: controller, services/ (record, list), repository, entity, dto
     ├── api_keys/                       hashed, scoped, revocable keys
     ├── oauth/                          Google and GitHub (PKCE, state, one-time exchange code)
     ├── passkeys/                       WebAuthn registration and usernameless sign-in
@@ -383,7 +384,7 @@ Axum extractors play the role of guards and pipes: `AuthUser` and `AdminUser` ar
 
 ### Adding a feature
 
-1. Create `modules/<name>/` with `mod.rs`, `controller.rs`, `service.rs`, `repository.rs`, `entity.rs`, `dto/`, `error.rs` (`impl From<YourError> for AppError`).
+1. Create `modules/<name>/` with `mod.rs`, `controllers/`, `services/`, `repository.rs` (or `repositories/` once it covers more than one table or concern), `entity.rs`, `dto/`, `error.rs` (`impl From<YourError> for AppError`). One file per use case in `controllers/` and `services/`; see [docs/adding-a-feature.md](docs/adding-a-feature.md#13-split-by-use-case).
 2. Add the migration under `migrations/` (`0017_<name>.sql`).
 3. Build the service in `AppState::with_mail` (`state.rs`) and add it as an `Arc<YourService>` field; `#[derive(FromRef)]` lets handlers take `State<Arc<YourService>>`. Keep every `AppState` field a cheap handle (`Arc`, pool): axum clones the state on every request, so a `String` or `Vec` field would be copied each time.
 4. Nest its router in `modules/mod.rs`.

@@ -6,8 +6,8 @@ pub mod controller;
 pub mod dto;
 pub mod entity;
 pub mod repository;
-pub mod service;
+pub mod services;
 
 pub use controller::router;
 pub use repository::AuditLogRepository;
-pub use service::{AuditLogService, action};
+pub use services::{AuditLogService, action};

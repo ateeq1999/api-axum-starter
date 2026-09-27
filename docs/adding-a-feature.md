@@ -1013,6 +1013,96 @@ curl "localhost:3000/api/v1/notes?q=milk" -H "authorization: Bearer $TOKEN"
 
 Open http://localhost:3000/docs and the notes endpoints are there, with try-it-out.
 
+## 13. Split by use case
+
+The steps above keep each role in one file so the whole feature reads top to bottom. The
+project's rule is that a role becomes a folder once it holds two or more use cases, which notes
+does, so the finished feature looks like every other module:
+
+```
+src/modules/notes/
+├── controllers/
+│   ├── mod.rs            router(): the routes, pointing at the files below
+│   ├── create_note.rs    POST   /notes
+│   ├── list_notes.rs     GET    /notes
+│   ├── get_note.rs       GET    /notes/{id}
+│   ├── update_note.rs    PATCH  /notes/{id}
+│   └── delete_note.rs    DELETE /notes/{id}
+├── services/
+│   ├── mod.rs            struct NotesService, new(), shared helpers (ensure_room_to_pin, the limit)
+│   ├── create_note.rs    one `impl NotesService` block per use case
+│   ├── list_notes.rs
+│   ├── get_note.rs
+│   ├── update_note.rs
+│   └── delete_note.rs
+├── repository.rs         one table, one concern: stays a single file
+├── dto/  entity.rs  error.rs  mod.rs
+```
+
+Nothing about the types changes: there is still one `NotesService` and callers still write
+`notes.create(...)`. Each file just adds methods to it:
+
+```rust
+// services/mod.rs: the struct, its constructor, and helpers several use cases share
+mod create_note;
+mod delete_note;
+mod get_note;
+mod list_notes;
+mod update_note;
+
+const MAX_PINNED_NOTES_PER_USER: i64 = 5;
+
+#[derive(Clone)]
+pub struct NotesService {
+    repo: NotesRepository,
+}
+
+impl NotesService {
+    pub fn new(repo: NotesRepository) -> Self { Self { repo } }
+
+    async fn ensure_room_to_pin(&self, owner_id: Uuid) -> AppResult<()> { /* as in step 8 */ }
+}
+```
+
+```rust
+// services/create_note.rs: one use case
+use super::NotesService;
+
+impl NotesService {
+    pub async fn create(&self, actor: &AuthUser, dto: CreateNoteDto) -> AppResult<NoteResponse> {
+        /* as in step 8 */
+    }
+}
+```
+
+Private fields and helpers in `services/mod.rs` are visible to the files under it, because they
+are its child modules. Controllers work the same way, with the router in `controllers/mod.rs`:
+
+```rust
+// controllers/mod.rs
+pub mod create_note;
+pub mod delete_note;
+pub mod get_note;
+pub mod list_notes;
+pub mod update_note;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/", get(list_notes::list).post(create_note::create))
+        .route(
+            "/{id}",
+            get(get_note::get_one)
+                .patch(update_note::update)
+                .delete(delete_note::remove),
+        )
+}
+```
+
+In `infra/openapi.rs`, handlers are then listed by their file:
+`crate::modules::notes::controllers::create_note::create`. Split a repository the same way once it
+covers more than one table or concern (see `modules/oauth/repositories/`: states, identities,
+grants).
+
 ## Done checklist
 
 - [ ] Migration added, and it applies on an empty database and on top of the previous one

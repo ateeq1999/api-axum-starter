@@ -9,14 +9,18 @@ use crate::{
     modules::audit_log::AuditLogService,
 };
 
-mod account_security;
 mod accounts;
+mod avatar;
 mod bootstrap_admin;
 mod create_user;
 mod delete_user;
+mod email_addresses;
 mod get_user;
 mod list_users;
+mod login_attempts;
 mod session_verifier;
+mod sign_in_methods;
+mod two_factor;
 mod update_profile;
 mod update_user;
 

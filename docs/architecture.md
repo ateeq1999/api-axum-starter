@@ -37,9 +37,9 @@ any error, at any step  ->  AppError  ->  { "error": { "code", "message", "detai
 
 | Layer | Does | Must not |
 |---|---|---|
-| **Controller** (`controller.rs`) | Axum types: extractors in, `Json`/status out. Calls one service method | Contain SQL, hashing, or rules |
-| **Service** (`service.rs`) | Business rules, orchestration, calls other services | Know about axum, headers, or status codes |
-| **Repository** (`repository.rs`) | SQL, and only SQL. Plain values in, entities out | Decide anything about permissions or rules |
+| **Controller** (`controllers/`, one file per endpoint) | Axum types: extractors in, `Json`/status out. Calls one service method | Contain SQL, hashing, or rules |
+| **Service** (`services/`, one file per use case) | Business rules, orchestration, calls other services | Know about axum, headers, or status codes |
+| **Repository** (`repository.rs`, or `repositories/` split by table or concern) | SQL, and only SQL. Plain values in, entities out | Decide anything about permissions or rules |
 | **DTO** (`dto/`) | Request and response shapes, validation attributes, OpenAPI schemas | Be a database entity |
 | **Entity** (`entity.rs`) | One database row (`sqlx::FromRow`) | Be serialized to a client |
 

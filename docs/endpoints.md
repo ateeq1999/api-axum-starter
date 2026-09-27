@@ -84,7 +84,7 @@ actor.credential  // Credential::Session | Credential::ApiKey(scope)
 | A path parameter | `Path<Uuid>` (route syntax is `"/{id}"`) |
 | A service | `State<Arc<YourService>>` |
 | The caller's IP and user agent | `ClientMeta` (`.ip`, `.user_agent`; respects `TRUST_PROXY_HEADERS`) |
-| Raw bytes (an upload) | `request: axum::extract::Request`, read with `to_bytes(request.into_body(), limit)`. See `modules/media/controller.rs` |
+| Raw bytes (an upload) | `request: axum::extract::Request`, read with `to_bytes(request.into_body(), limit)`. See `modules/media/controllers/upload_media.rs` |
 
 For a raw upload, check `Content-Length` against your limit first and cap `to_bytes`, as the media
 controller does, so an oversized body is rejected as `413` before it is buffered.
@@ -98,7 +98,7 @@ controller does, so an oversized body is rejected as `413` before it is buffered
 | Nothing to return | `StatusCode::NO_CONTENT` (204) |
 | Just a message | `Json(MessageResponse::new("Password updated."))` |
 | A page of results | `Json(PaginatedResponse<T>)`, shaped `{ items, page, per_page, total }` |
-| Non-JSON (a file) | Build a `Response`; set `Content-Type`, and think about `Content-Disposition`, `nosniff` and caching (see `modules/media/controller.rs::content`) |
+| Non-JSON (a file) | Build a `Response`; set `Content-Type`, and think about `Content-Disposition`, `nosniff` and caching (see `modules/media/controllers/download_content.rs`) |
 
 Never return an entity; map it to a response DTO (`impl From<Entity> for Response`).
 

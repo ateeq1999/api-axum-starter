@@ -1,11 +1,11 @@
-pub mod controller;
+pub mod controllers;
 pub mod dto;
 pub mod entity;
 pub mod error;
-pub mod repository;
-pub mod service;
+pub mod repositories;
+pub mod services;
 
-pub use controller::router;
+pub use controllers::router;
 pub use error::PasskeyError;
-pub use repository::PasskeysRepository;
-pub use service::PasskeysService;
+pub use repositories::PasskeysRepository;
+pub use services::PasskeysService;

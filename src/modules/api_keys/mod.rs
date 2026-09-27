@@ -1,11 +1,11 @@
-pub mod controller;
+pub mod controllers;
 pub mod dto;
 pub mod entity;
 pub mod error;
 pub mod repository;
-pub mod service;
+pub mod services;
 
-pub use controller::router;
+pub use controllers::router;
 pub use error::ApiKeysError;
 pub use repository::ApiKeysRepository;
-pub use service::ApiKeysService;
+pub use services::ApiKeysService;

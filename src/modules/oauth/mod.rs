@@ -1,15 +1,15 @@
 pub mod client;
-pub mod controller;
+pub mod controllers;
 pub mod dto;
 pub mod entity;
 pub mod error;
 pub mod provider;
-pub mod repository;
-pub mod service;
+pub mod repositories;
+pub mod services;
 
 pub use client::ProviderClient;
-pub use controller::router;
+pub use controllers::router;
 pub use error::OAuthError;
 pub use provider::Provider;
-pub use repository::OAuthRepository;
-pub use service::OAuthService;
+pub use repositories::OAuthRepository;
+pub use services::OAuthService;

@@ -4,7 +4,7 @@ use axum::{Json, Router, extract::State, routing::get};
 
 use super::{
     dto::{AuditLogEntryResponse, ListAuditLogQuery},
-    service::AuditLogService,
+    services::AuditLogService,
 };
 use crate::{
     common::{

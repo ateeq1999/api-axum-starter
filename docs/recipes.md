@@ -89,7 +89,7 @@ Emails are templates plus a small struct. The service you call never touches SMT
    Declare it with `pub mod note_shared;` in `messages/mod.rs`. (For the common "a link and an
    expiry" email, the `link_message!` macro there declares the whole thing in a few lines.)
 
-3. **A send method** on `MailService` in `service.rs`:
+3. **A send method** on `MailService`, in `modules/mail/service/senders.rs` next to the others:
 
    ```rust
    pub fn send_note_shared(&self, to: &str, sender: &str, link: &str) {
@@ -113,7 +113,7 @@ Emails are templates plus a small struct. The service you call never touches SMT
    ```
 
    Add the new message to `every_email_renders_a_complete_layout_and_text_part` in
-   `modules/mail/service.rs`, which checks every email for leftover template syntax, a title, the
+   `modules/mail/service/tests.rs`, which checks every email for leftover template syntax, a title, the
    layout footer and a text part.
 
 To preview it: `docker compose -f docker-compose.dev.yml up -d` starts Mailpit, then set
@@ -215,7 +215,7 @@ To let users upload media without a new feature, the `/api/v1/media` endpoints a
 For actions someone may later ask "who did that?" about, write an entry. It is durable, queryable,
 and readable by admins at `GET /api/v1/audit-log`.
 
-1. Add a name to the `action` module in `src/modules/audit_log/service.rs` (constants, so a typo
+1. Add a name to the `action` module in `src/modules/audit_log/services/mod.rs` (constants, so a typo
    cannot create a new, undiscoverable action):
 
    ```rust

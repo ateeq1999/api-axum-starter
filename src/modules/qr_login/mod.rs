@@ -1,11 +1,11 @@
-pub mod controller;
+pub mod controllers;
 pub mod dto;
 pub mod entity;
 pub mod error;
 pub mod repository;
-pub mod service;
+pub mod services;
 
-pub use controller::router;
+pub use controllers::router;
 pub use error::QrError;
 pub use repository::QrRepository;
-pub use service::QrLoginService;
+pub use services::QrLoginService;

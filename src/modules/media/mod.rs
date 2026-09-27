@@ -2,14 +2,14 @@
 //! `infra::storage::ObjectStorage` (local disk or S3). Every file is private to its owner (and
 //! admins): read it back through `GET /api/v1/media/{id}/content` with the same credentials.
 
-pub mod controller;
+pub mod controllers;
 pub mod dto;
 pub mod entity;
 pub mod error;
 pub mod repository;
-pub mod service;
+pub mod services;
 
-pub use controller::router;
+pub use controllers::router;
 pub use error::MediaError;
 pub use repository::MediaRepository;
-pub use service::MediaService;
+pub use services::MediaService;
