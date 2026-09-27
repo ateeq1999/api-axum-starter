@@ -13,10 +13,20 @@
 #   SKIP_BUILD=1 ./deploy.sh       reuse the local api-starter-axum:local image
 #   IMAGE_TAG=v2 ./deploy.sh       push and run a different tag
 #
+# Administrator account (created on first start only, when the database has no admin yet):
+#   ./deploy.sh                                   generated password, printed when it finishes
+#   ADMIN_PASSWORD='my-long-passphrase' ./deploy.sh   your own password (8-128 characters)
+#   ADMIN_EMAIL=me@example.com ./deploy.sh        a different admin email
+#
 # Tear everything down with:  ./tf.sh destroy
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
+
+# Handed to Terraform through the environment (never as -var), so the password does not show up
+# in the process list. tf.sh forwards these into its Docker fallback.
+[ -n "${ADMIN_PASSWORD:-}" ] && export TF_VAR_admin_password="$ADMIN_PASSWORD"
+[ -n "${ADMIN_EMAIL:-}" ] && export TF_VAR_admin_email="$ADMIN_EMAIL"
 
 image_tag="${IMAGE_TAG:-latest}"
 local_image="api-starter-axum:local"
@@ -63,12 +73,37 @@ echo "==> Creating the rest of the stack (RDS takes about a minute)"
 echo "==> Waiting for the API on http://localhost:$api_port"
 for _ in $(seq 1 60); do
   if curl -fsS -m 3 "http://localhost:$api_port/health/ready" >/dev/null 2>&1; then
+    admin_email="$(./tf.sh output -raw admin_email | tr -d '\r')"
+    admin_password="$(./tf.sh output -raw admin_password | tr -d '\r')"
+
     echo
     echo "API is up:      http://localhost:$api_port"
     echo "Swagger UI:     http://localhost:$api_port/docs"
-    echo "Admin login:    $(./tf.sh output -raw admin_email | tr -d '\r')"
-    echo "Admin password: ./tf.sh output -raw admin_password"
     echo "Mail (Mailpit): http://localhost:8025"
+    echo
+    echo "Admin email:    $admin_email"
+    if [ -n "$admin_email" ]; then
+      if [ -n "${ADMIN_PASSWORD:-}" ]; then
+        echo "Admin password: the one you set in ADMIN_PASSWORD"
+      else
+        echo "Admin password: $admin_password"
+        echo "                (generated; show it again with ./tf.sh output -raw admin_password)"
+      fi
+
+      # The API only creates the admin when none exists yet, so on a redeploy over an existing
+      # database the password above may not be the real one. One login attempt tells us.
+      login_status="$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+        -X POST "http://localhost:$api_port/api/v1/auth/login" \
+        -H 'content-type: application/json' \
+        -d "{\"email\":\"$admin_email\",\"password\":\"$admin_password\"}" || true)"
+      if [ "$login_status" != "200" ]; then
+        echo
+        echo "WARNING: signing in with these credentials returned HTTP $login_status." >&2
+        echo "An administrator already exists in this database, so ADMIN_EMAIL/ADMIN_PASSWORD were" >&2
+        echo "ignored. Use that account's existing password, change it in the app, or wipe the" >&2
+        echo "database with ./tf.sh destroy and deploy again." >&2
+      fi
+    fi
     exit 0
   fi
   sleep 3

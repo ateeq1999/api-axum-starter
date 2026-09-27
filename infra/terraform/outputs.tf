@@ -35,6 +35,6 @@ output "admin_email" {
 
 output "admin_password" {
   description = "Bootstrap administrator's password. Show it with: ./tf.sh output -raw admin_password"
-  value       = random_password.admin.result
+  value       = local.admin_password
   sensitive   = true
 }

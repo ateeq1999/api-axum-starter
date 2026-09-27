@@ -37,6 +37,8 @@ exec docker run --rm "${interactive_flags[@]}" \
   --network "$docker_network" \
   -e TF_VAR_floci_endpoint="${TF_VAR_floci_endpoint:-http://floci:4566}" \
   -e TF_IN_AUTOMATION=1 \
+  -e TF_VAR_admin_password \
+  -e TF_VAR_admin_email \
   -v "$project_directory:/work" \
   -w /work \
   hashicorp/terraform:latest "$@"

@@ -2,6 +2,10 @@
 # files back itself, so the bucket stays private.
 resource "aws_s3_bucket" "uploads" {
   bucket = "${var.project_name}-uploads"
+
+  # Lets `./tf.sh destroy` remove the bucket even when it holds uploads. This stack is for local
+  # testing; a real deployment should not set this.
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "uploads" {

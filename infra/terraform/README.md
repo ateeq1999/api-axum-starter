@@ -25,7 +25,7 @@ image to ECR, creates everything else, and waits until the API answers. Then:
 |---|---|
 | API | http://localhost:3000 |
 | Swagger UI | http://localhost:3000/docs |
-| Admin login | `admin_email` below, password from `./tf.sh output -raw admin_password` |
+| Admin login | printed when `deploy.sh` finishes (see [The administrator account](#the-administrator-account)) |
 | Mail sent by the API | http://localhost:8025 (Mailpit) |
 | Logs | `docker logs $(docker ps -q --filter name=floci-ecs) --tail 50` |
 
@@ -36,6 +36,25 @@ SKIP_BUILD=1 ./deploy.sh      # reuse the local api-starter-axum:local image
 IMAGE_TAG=v2 ./deploy.sh      # push and run another tag
 API_HOST_PORT=8080 ./deploy.sh
 ```
+
+### The administrator account
+
+`deploy.sh` prints the admin email and password when it finishes. Choose your own, or let it
+generate one:
+
+```bash
+./deploy.sh                                        # generated password, printed at the end
+ADMIN_PASSWORD='my-long-passphrase' ./deploy.sh    # your own (8-128 characters)
+ADMIN_EMAIL=me@example.com ./deploy.sh             # a different admin email
+./tf.sh output -raw admin_password                 # show the password again later
+```
+
+The values reach Terraform through the environment, never as a command-line argument, so the
+password does not appear in the process list. The API creates the admin only on first start, when
+the database has no administrator yet. If you redeploy over an existing database with a different
+password, the script warns you (it tries one login), because the old account keeps its old
+password: change it in the app (`POST /api/v1/auth/password/change`), or `./tf.sh destroy` first
+to start from an empty database.
 
 ## What it creates
 
@@ -64,7 +83,8 @@ Override with `-var name=value` (via `./tf.sh apply -var ...`) or a `terraform.t
 |---|---|---|
 | `frontend_url` | `http://localhost:3001` | Links in emails and the default CORS origin |
 | `cors_allowed_origins` | blank (= `frontend_url`) | Comma-separated origins |
-| `admin_email` | see `variables.tf` | Bootstrap administrator. Blank creates none |
+| `admin_email` | `admin@example.com` | Bootstrap administrator. Blank creates none |
+| `admin_password` | blank (= generated) | Its password, 8-128 characters. Prefer `ADMIN_PASSWORD=... ./deploy.sh` |
 | `require_verified_email` | `false` | Block login until the email is verified |
 | `smtp_host` / `smtp_port` | `infra-mailpit` / `1025` | Mail server. Blank host turns sending off |
 | `api_host_port` | `3000` | Port the API is published on |

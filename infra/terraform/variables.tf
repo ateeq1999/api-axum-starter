@@ -46,6 +46,18 @@ variable "admin_email" {
   default     = "admin@example.com"
 }
 
+variable "admin_password" {
+  description = "Password for the bootstrap administrator. Blank generates a random one, which deploy.sh prints when it finishes. deploy.sh passes it as TF_VAR_admin_password so it never appears on a command line."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = var.admin_password == "" || (length(var.admin_password) >= 8 && length(var.admin_password) <= 128)
+    error_message = "admin_password must be 8-128 characters (the API's password rule)."
+  }
+}
+
 variable "require_verified_email" {
   description = "Block password login until the email is verified."
   type        = bool

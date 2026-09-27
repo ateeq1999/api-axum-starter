@@ -15,6 +15,11 @@ resource "random_password" "admin" {
   special = false
 }
 
+locals {
+  # The password you chose (admin_password), or the generated one when you left it blank.
+  admin_password = var.admin_password != "" ? var.admin_password : random_password.admin.result
+}
+
 # The values the API must not have in plain text in its task definition. ECS reads them from
 # Secrets Manager when it starts the container.
 resource "aws_secretsmanager_secret" "jwt_signing_secret" {
@@ -44,5 +49,5 @@ resource "aws_secretsmanager_secret" "admin_password" {
 
 resource "aws_secretsmanager_secret_version" "admin_password" {
   secret_id     = aws_secretsmanager_secret.admin_password.id
-  secret_string = random_password.admin.result
+  secret_string = local.admin_password
 }
