@@ -298,14 +298,10 @@ impl UsersRepository {
         Ok(())
     }
 
-    /// Soft delete. The email is replaced so the address can be registered again. See
-    /// [`Self::update`] for what `guard_last_admin` does.
-    pub async fn soft_delete(
-        &self,
-        id: Uuid,
-        released_email: &str,
-        guard_last_admin: bool,
-    ) -> AppResult<bool> {
+    /// Soft delete. The row keeps its email (uniqueness only applies to accounts that are not
+    /// deleted, so the address can be registered again). See [`Self::update`] for what
+    /// `guard_last_admin` does.
+    pub async fn soft_delete(&self, id: Uuid, guard_last_admin: bool) -> AppResult<bool> {
         let mut tx = self.db.begin().await?;
         if guard_last_admin {
             sqlx::query("SELECT pg_advisory_xact_lock($1)")
@@ -326,12 +322,11 @@ impl UsersRepository {
 
         let now = Utc::now();
         let result = sqlx::query(
-            "UPDATE users SET deleted_at = $1, updated_at = $2, is_active = FALSE, email = $3
-             WHERE id = $4 AND deleted_at IS NULL",
+            "UPDATE users SET deleted_at = $1, updated_at = $2, is_active = FALSE
+             WHERE id = $3 AND deleted_at IS NULL",
         )
         .bind(now)
         .bind(now)
-        .bind(released_email)
         .bind(id)
         .execute(&mut *tx)
         .await?;

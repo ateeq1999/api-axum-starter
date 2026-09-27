@@ -1,4 +1,4 @@
-//! Tests for the Postgres-backed job queue (`infra::jobs`). See `queue.md` for the design.
+//! Tests for the Postgres-backed job queue (`infra::jobs`). See the README's "Background jobs" section for the design.
 
 mod common;
 

@@ -6,7 +6,7 @@ RDS Postgres database, an S3 bucket for uploads, and secrets in Secrets Manager.
 shape as a real AWS deployment, so the app's production configuration (S3 uploads, secrets from
 the environment, `DATABASE_URL` to a managed Postgres) gets exercised before it ships.
 
-For a real AWS deployment on a small budget, see [deploy.md](../../deploy.md).
+For a real AWS deployment on a small budget, see [deploy.md](../../docs/deploy.md).
 
 ## Quick start
 
@@ -123,4 +123,4 @@ Override with `-var name=value` (via `./tf.sh apply -var ...`) or a `terraform.t
 Only `providers.tf` is floci-specific (endpoints, fixed credentials, skipped account checks).
 The resources are ordinary AWS ones, but a real deployment would also want a load balancer and
 private networking, and on this project's small-budget path it uses a single EC2 instance
-instead of ECS: see [deploy.md](../../deploy.md).
+instead of ECS: see [deploy.md](../../docs/deploy.md).

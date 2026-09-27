@@ -4,6 +4,8 @@ A REST API starter built on [axum](https://github.com/tokio-rs/axum), PostgreSQL
 
 Setting up OAuth, passkeys, QR login and the rest: see **[steps.md](steps.md)**.
 
+Building on this template (adding features, endpoints, emails, background jobs, tests, deployment): see **[docs/](docs/README.md)**.
+
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [API](#api)
@@ -229,7 +231,7 @@ A wrong code does not spend `pending_token`: it stays usable for another attempt
 | PATCH | `/me` | authenticated | Update own `display_name` |
 | GET | `/{id}` | admin or the user themself | |
 | PATCH | `/{id}` | admin | `display_name`, `role`, `is_active` |
-| DELETE | `/{id}` | admin | Soft delete, `204` |
+| DELETE | `/{id}` | admin | Soft delete, `204`: the account is hidden and its email can be registered again |
 
 Rules enforced: an admin cannot demote, deactivate or delete themself, and the last active admin cannot be removed — that last check runs atomically (a Postgres advisory lock guards it), so two concurrent admin changes can never both succeed and leave zero admins.
 
@@ -355,7 +357,7 @@ src/
     ├── oauth/                          Google and GitHub (PKCE, state, one-time exchange code)
     ├── passkeys/                       WebAuthn registration and usernameless sign-in
     └── qr_login/                       QR-code sign-in sessions
-migrations/                             0001 users ... 0015 media (applied automatically at startup)
+migrations/                             0001 users ... 0016 email uniqueness (applied automatically at startup)
 seeds/seed.sql, seeds/reset.sql         development seed data / wipe (`cargo run -- seed [--fresh]`)
 tests/                                  integration tests (see Testing)
 Dockerfile, .dockerignore               multi-stage build for the API image
@@ -382,7 +384,7 @@ Axum extractors play the role of guards and pipes: `AuthUser` and `AdminUser` ar
 ### Adding a feature
 
 1. Create `modules/<name>/` with `mod.rs`, `controller.rs`, `service.rs`, `repository.rs`, `entity.rs`, `dto/`, `error.rs` (`impl From<YourError> for AppError`).
-2. Add the migration under `migrations/` (`0016_<name>.sql`).
+2. Add the migration under `migrations/` (`0017_<name>.sql`).
 3. Build the service in `AppState::with_mail` (`state.rs`) and add it as an `Arc<YourService>` field; `#[derive(FromRef)]` lets handlers take `State<Arc<YourService>>`. Keep every `AppState` field a cheap handle (`Arc`, pool): axum clones the state on every request, so a `String` or `Vec` field would be copied each time.
 4. Nest its router in `modules/mod.rs`.
 5. Annotate handlers with `#[utoipa::path(...)]` and DTOs with `#[derive(ToSchema)]`, then list them in `infra/openapi.rs`'s `ApiDoc` so they show up at `/docs`.
@@ -468,7 +470,7 @@ docker compose -f docker-compose.monitoring.yml up -d
 
 - `Dockerfile`: multi-stage build (`cargo build --release` in a `rust:slim` image, running in `debian:bookworm-slim`). Migrations are compiled into the binary, so the runtime image needs nothing from `migrations/`.
 - `.github/workflows/ci.yml`: on every push/PR, runs `cargo fmt --check`, `cargo clippy -- -D warnings` and the full test suite against a Postgres service container, plus a separate job auditing dependencies against the RustSec advisory database (`rustsec/audit-check`).
-- `infra/terraform/`: deploys the whole stack (ECR, ECS, RDS Postgres, S3, Secrets Manager, IAM) to the local floci AWS emulator with one command, `./deploy.sh`. See [infra/terraform/README.md](infra/terraform/README.md). For real AWS on a small budget, see [deploy.md](deploy.md).
+- `infra/terraform/`: deploys the whole stack (ECR, ECS, RDS Postgres, S3, Secrets Manager, IAM) to the local floci AWS emulator with one command, `./deploy.sh`. See [infra/terraform/README.md](infra/terraform/README.md). For real AWS on a small budget, see [docs/deploy.md](docs/deploy.md).
 
 ## Testing
 
@@ -485,7 +487,7 @@ cargo clippy --all-targets
 
 Deliberate scope boundaries for a starter, not oversights:
 
-- Soft delete rewrites the user's email to `deleted+<id>@deleted.invalid` so the address can be registered again — by design.
+- Deleting a user is a soft delete: the row keeps its data (email, display name) with `deleted_at` set, drops out of every query, and frees the email address for a new registration (uniqueness applies to live accounts only). Nothing purges old rows automatically; if you need erasure guarantees, add a job that anonymizes or removes them after your retention period (see [docs/recipes.md](docs/recipes.md#run-work-in-the-background)).
 - Password hashing is capped at `MAX_CONCURRENT_HASHES` at a time (default 8), so a burst of logins queues instead of allocating 19 MiB each. Under a burst, requests wait for a free slot; the 10 s request timeout still applies.
 - The rate limiter is per-replica, and uploads (profile photos and media) default to local disk (`UPLOAD_DIR`), which is single-host. Set `S3_BUCKET` so several API replicas can share them. Sharing the rate limiter across replicas needs an external store (Redis) this starter deliberately does not bundle.
 - Media is buffered in memory on upload and download (at most `MEDIA_MAX_UPLOAD_BYTES`, 8 MiB by default), and there is no range-request support, no per-user quota and no virus scanning. That suits images, documents and short clips; large video needs presigned S3 URLs or multipart uploads, which this starter does not include.

@@ -184,13 +184,8 @@ impl UsersService {
         policy::check_delete(actor, id)?;
 
         let target = self.require(id).await?;
-        let released_email = format!("deleted+{id}@deleted.invalid");
         let guard_last_admin = target.role.is_admin() && target.is_active;
-        if !self
-            .repo
-            .soft_delete(id, &released_email, guard_last_admin)
-            .await?
-        {
+        if !self.repo.soft_delete(id, guard_last_admin).await? {
             return Err(UsersError::NotFound.into());
         }
         self.audit_log

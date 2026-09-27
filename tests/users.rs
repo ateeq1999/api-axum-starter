@@ -287,8 +287,55 @@ async fn soft_delete_hides_the_user_and_frees_the_email() {
     let (_, page) = app.get("/api/v1/users", Some(&admin)).await;
     assert_eq!(page["total"], 1);
 
-    // the address can be registered again
-    app.register("gone@example.com").await;
+    // the deleted row keeps its real email (nothing is rewritten), and stays out of every listing
+    let stored_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1::uuid")
+        .bind(&user_id)
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(stored_email, "gone@example.com");
+
+    // the address can be registered again, and the new account is a different one
+    let reregistered = app.register("gone@example.com").await;
+    assert_ne!(reregistered["id"], user_id.as_str());
+}
+
+#[tokio::test]
+async fn an_email_can_be_reused_after_every_deletion_but_never_by_two_live_accounts() {
+    let app = spawn().await;
+    let (_, admin) = app.admin("root2@example.com").await;
+
+    // register -> delete -> register -> delete -> register: two deleted rows now share the email
+    for _ in 0..2 {
+        let created = app.register("cycle@example.com").await;
+        let (status, _) = app
+            .delete(
+                &format!("/api/v1/users/{}", created["id"].as_str().unwrap()),
+                Some(&admin),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+    let live = app.register("cycle@example.com").await;
+    assert!(live["id"].is_string());
+
+    // while an account holds the address, nobody else can take it
+    let (status, body) = app
+        .post(
+            "/api/v1/auth/register",
+            None,
+            json!({ "email": "cycle@example.com", "password": PASSWORD }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let deleted_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM users WHERE email = 'cycle@example.com' AND deleted_at IS NOT NULL",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(deleted_rows, 2);
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 //! A small durable job queue backed by Postgres, claimed with `FOR UPDATE SKIP LOCKED` —
 //! the standard Postgres queue pattern (the same mechanism the `pgmq` extension itself uses
-//! internally), needing no extension. See `queue.md` at the repo root for the design rationale.
+//! internally), needing no extension. See the README's "Background jobs" section for the design rationale.
 //!
 //! Used today for one recurring job, [`cleanup::CLEANUP_EXPIRED_ROWS`], which sweeps expired
 //! rows on a timer by re-enqueuing itself — a "cron job" that needs no `pg_cron` extension.
